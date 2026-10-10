@@ -67,7 +67,7 @@ input:disabled,select:disabled,textarea:disabled{background:#f3f5f8;color:#333}
 .warn{background:#fde2e2;border:1px solid #f0a5a5;border-radius:10px;padding:10px 12px;margin-bottom:12px;font-size:14px}
 table.tb{width:100%;border-collapse:collapse;font-size:14px;background:#fff}
 table.tb th,table.tb td{border:1px solid var(--line);padding:6px;vertical-align:top}
-table.tb th{background:#eef2f7}
+table.tb th{background:#eef2f7;white-space:nowrap}
 .scrollx{overflow-x:auto}
 /* modal */
 #modal{display:none;position:fixed;inset:0;z-index:50;background:rgba(10,15,25,.92)}
@@ -395,10 +395,11 @@ async function viewHome() {
         <div class="grow"><b>第${esc(i.seq)}次｜${roc(i.date)}（${wk(i.date)}）</b><br>
         <span class="muted">事項 ${i.entries.length}｜簽名 ${sc}/${i.signs.length}</span>
         ${i.locked ? '<span class="tag grn">已定稿</span>' : '<span class="tag org">草稿</span>'}${i.paper ? '<span class="tag blu">紙本補登</span>' : ''}</div>
-        <div>›</div></div>`;
+        <button class="btn red" data-del="${i.id}" style="flex:0 0 auto;min-height:40px;padding:6px 10px" aria-label="刪除">🗑</button></div>`;
     }).join('') || '<div class="muted" style="padding:8px">尚無紀錄</div>'}</div>`;
   $('#newBtn').onclick = async () => { const d = $('#newDate').value || today(); const id = await newInsp(d); location.hash = '#/insp/' + id + '/basic'; };
   $$('.list .it').forEach(el => el.onclick = () => location.hash = '#/insp/' + el.dataset.id + '/basic');
+  $$('[data-del]').forEach(b => b.onclick = async ev => { ev.stopPropagation(); if (await deleteInsp(b.dataset.del)) viewHome(); });
 }
 async function newInsp(date, extra = {}) {
   const [all, items] = await Promise.all([DB.all('insp'), DB.all('items')]);
@@ -461,10 +462,10 @@ function tabBasic(app, lockMsg) {
   <div class="card" style="margin-top:12px">
     <h3>操作紀錄（稽核軌跡）</h3>
     <div class="muted">${i.log.map(l => fmtDT(l.t) + '　' + esc(l.a)).join('<br>')}</div>
-    ${i.locked ? '' : `<button class="btn red" id="delInsp" style="margin-top:10px">刪除此筆會勘紀錄</button>`}
+    <button class="btn red" id="delInsp" style="margin-top:10px">🗑 刪除此筆會勘紀錄</button>
   </div>`;
   bindFields(app);
-  const d = $('#delInsp'); if (d) d.onclick = deleteInsp;
+  $('#delInsp').onclick = async () => { if (await deleteInsp(i.id)) location.hash = '#/'; };
 }
 function bindFields(root) {
   $$('[data-f]', root).forEach(el => el.addEventListener('input', () => {
@@ -473,17 +474,33 @@ function bindFields(root) {
     scheduleSave();
   }));
 }
-async function deleteInsp() {
-  const i = S.cur;
-  if (!confirm(`確定刪除「第${i.seq}次 ${roc(i.date)}」整筆會勘紀錄（含 ${S.photos.length} 張照片）？此動作無法復原。`)) return;
-  if (prompt('請輸入「刪除」兩字確認') !== '刪除') return;
-  for (const p of S.photos) await DB.del('photos', p.id);
+const DEL_PW = '7101';
+async function deleteInsp(id) {
+  const i = await DB.get('insp', id); if (!i) return false;
+  const photos = await DB.photosOf(id);
+  if (!confirm(`確定刪除「第${i.seq}次 ${roc(i.date)}」整筆會勘紀錄？
+（含事項紀錄、${photos.length} 張照片${i.locked ? '，此紀錄已定稿' : ''}）
+
+刪除後無法復原。`)) return false;
+  const pw = prompt('請輸入刪除密碼'); if (pw === null) return false;
+  if (pw.trim() !== DEL_PW) { alert('密碼錯誤，未刪除。'); return false; }
+  if (saveTimer && S.cur && S.cur.id === id) { clearTimeout(saveTimer); saveTimer = null; }
+  for (const ph of photos) await DB.del('photos', ph.id);
   for (const e of i.entries) {
     const it = await DB.get('items', e.itemId); if (!it) continue;
-    if (it.history) delete it.history[i.id];
-    if (!it.history || !Object.keys(it.history).length) await DB.del('items', it.id); else await DB.put('items', it);
+    if (it.history) delete it.history[id];
+    const hs = Object.values(it.history || {}).sort((x, y) => x.date.localeCompare(y.date));
+    if (!hs.length) { await DB.del('items', it.id); continue; }
+    // 依剩下的會勘紀錄重算事項的最新狀態
+    const last = hs[hs.length - 1];
+    Object.assign(it, { status: last.status, latestPromise: last.promise || '', lastInspDate: last.date, postpones: hs.filter(h => h.postponed).length });
+    if (it.status !== '已完成') it.doneDate = '';
+    await DB.put('items', it);
   }
-  await DB.del('insp', i.id); S.cur = null; location.hash = '#/';
+  await DB.del('insp', id);
+  if (S.cur && S.cur.id === id) S.cur = null;
+  toast('已刪除');
+  return true;
 }
 
 /* --- 事項 --- */
@@ -1032,28 +1049,23 @@ async function makePDF(blocks, name) {
 /* ========== 延宕追蹤總表 ========== */
 async function viewItems() {
   S.cur = null; setHeader('延宕追蹤總表', null); mainTabs('items'); markSaved('');
-  const [items, insps] = await Promise.all([DB.all('items'), DB.all('insp')]);
-  const im = Object.fromEntries(insps.map(x => [x.id, x]));
+  const items = await DB.all('items');
   items.sort((a, b) => (CLOSED.includes(a.status) - CLOSED.includes(b.status)) || (b.postpones || 0) - (a.postpones || 0) || (a.firstPromise || '9').localeCompare(b.firstPromise || '9'));
-  const tableHTML = forPrint => `<table class="${forPrint ? 'small' : 'tb'}"><thead><tr><th>#</th><th>事項</th><th>區域</th><th>首次承諾</th><th>最新承諾</th><th>延期次數</th><th>延宕天數</th><th>狀態</th><th>歷次會勘紀錄</th></tr></thead><tbody>
-    ${items.map((it, k) => {
-      const c = itemCalc(it);
-      const hist = Object.entries(it.history || {}).sort((a, b) => a[1].date.localeCompare(b[1].date))
-        .map(([iid, h]) => `${roc(h.date)} 第${esc(h.seq ?? (im[iid] || {}).seq ?? '')}次：${esc(h.status)}${h.promise ? '，承諾 ' + roc(h.promise) : ''}${h.postponed ? '（再延）' : ''}${h.note ? '－' + esc(h.note) : ''}`).join('<br>');
+  const tableHTML = forPrint => `<table class="${forPrint ? 'small' : 'tb'}"><thead><tr><th>事項</th><th>區域</th><th>首次承諾</th><th>最新承諾</th><th>延期次數</th></tr></thead><tbody>
+    ${items.map(it => {
       const red = forPrint ? 'class="red"' : 'style="color:var(--red);font-weight:700"';
-      return `<tr><td>${k + 1}</td><td>${esc(it.title)}</td><td>${esc(it.area)}</td><td>${roc(it.firstPromise)}</td>
-        <td ${c.overdue ? red : ''}>${roc(it.latestPromise)}</td><td ${it.postpones ? red : ''} style="text-align:center">${it.postpones || 0}</td>
-        <td ${c.delay ? red : ''} style="text-align:center">${c.delay || 0}</td><td>${esc(it.status)}${it.doneDate ? '<br>' + roc(it.doneDate) + (it.status === '已完成' && it.firstPromise && !c.delay ? '<br>（如期完成）' : '') : ''}</td><td class="small" style="font-size:12px">${hist}</td></tr>`;
+      return `<tr><td>${esc(it.title)}</td><td>${esc(it.area)}</td><td>${roc(it.firstPromise)}</td><td>${roc(it.latestPromise)}</td>
+        <td ${it.postpones ? red : ''} style="text-align:center">${it.postpones || 0}</td></tr>`;
     }).join('')}</tbody></table>`;
   const open = items.filter(i => !CLOSED.includes(i.status));
   $('#app').innerHTML = `
-    <div class="card"><b>統計至 ${roc(today())}</b><div class="muted">共 ${items.length} 項；未完成 ${open.length} 項；已逾承諾日 ${open.filter(x => itemCalc(x).overdue).length} 項；累計延期 ${items.reduce((s, x) => s + (x.postpones || 0), 0)} 次。<br>延宕天數＝首次承諾日至今日（已完成者至完成日）。事項內容請在各次會勘紀錄中修改。</div>
+    <div class="card"><b>統計至 ${roc(today())}</b><div class="muted">共 ${items.length} 項；未完成 ${open.length} 項；已逾承諾日 ${open.filter(x => itemCalc(x).overdue).length} 項；累計延期 ${items.reduce((s, x) => s + (x.postpones || 0), 0)} 次。<br>事項內容請在各次會勘紀錄中修改。</div>
     <div class="row" style="margin-top:8px"><button class="btn pri" id="pdfI">📄 產生 PDF</button><button class="btn" id="prI">🖨 列印</button></div></div>
     <div class="scrollx">${tableHTML(false)}</div>`;
   const sumBlocks = () => [`<h1>${esc(S.settings.project)}</h1><div class="sub" style="font-size:16px;font-weight:700">機電工程（${esc(S.settings.vendor)}）承諾事項延宕追蹤總表</div>
     <div class="sub">統計日期：${roc(today())}｜共 ${items.length} 項，未完成 ${open.length} 項，累計延期 ${items.reduce((s, x) => s + (x.postpones || 0), 0)} 次</div>`,
     { brk: true, h: tableHTML(true) },
-    `<div class="small">註：延宕天數＝首次承諾完成日起算至統計日（已完成者算至完成日）。資料來源為各次定期會勘紀錄（含各方簽認）。</div>`];
+    `<div class="small">註：資料來源為各次定期會勘紀錄（含各方簽認）。</div>`];
   const sumName = `${rocC(today())}_可曜機電延宕追蹤總表`;
   $('#prI').onclick = () => doPrint(pages(sumBlocks()), sumName);
   $('#pdfI').onclick = () => makePDF(sumBlocks(), sumName);
@@ -1092,7 +1104,7 @@ async function viewSettings() {
     <div class="muted">將 115/08/20 手寫會勘紀錄的 8 項事項及承諾日建為「紙本補登」紀錄，作為延宕追蹤的起點。<b>日期為辨識手寫字，匯入後請逐項核對。</b></div>
     <button class="btn" id="seed820" style="margin-top:8px">匯入 115/08/20 手寫事項</button>
   </div>
-  <div class="muted" style="text-align:center">版本 1.4｜離線可用</div>`;
+  <div class="muted" style="text-align:center">版本 1.6｜離線可用</div>`;
   const save = async () => { await DB.put('kv', st); markSaved('已儲存 ✓'); };
   $$('[data-s]').forEach(el => el.oninput = () => { st[el.dataset.s] = el.value; save(); });
   $$('[data-g]').forEach(el => el.oninput = () => { st.signers[+el.dataset.g][el.dataset.k] = el.value; save(); });

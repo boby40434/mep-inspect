@@ -1,5 +1,5 @@
 // 離線快取：先回快取（現場沒訊號也能開），有網路時背景更新
-const CACHE = 'mep-inspect-v5';
+const CACHE = 'mep-inspect-v7';
 const ASSETS = ['./', './index.html', './manifest.webmanifest', './icon-192.png', './icon-512.png', './jspdf.umd.min.js', './html2canvas.min.js'];
 
 self.addEventListener('install', e => {
