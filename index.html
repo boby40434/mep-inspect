@@ -752,8 +752,9 @@ function tabSign(app, lockMsg) {
       <div class="muted">${s.at ? '簽署時間：' + fmtDT(s.at) : ''}</div>
       ${ro ? '' : `<div class="row" style="margin-top:6px">
         ${s.img || s.absent ? '<button class="btn red" data-a="clr">清除重簽</button>' : '<button class="btn pri" data-a="sign">✍️ 簽名</button><button class="btn" data-a="absent">未到場/拒簽</button>'}
-      </div>`}
+      </div>${s.img || s.absent ? '' : '<button class="btn" data-a="rm" style="margin-top:6px;width:100%;min-height:38px;font-weight:400;color:var(--mut)">移除此簽名欄</button>'}`}
     </div>`).join('')}</div>
+    ${ro ? '' : '<button class="btn big" id="addSigner" style="margin-top:12px">＋ 新增簽名人員</button>'}
     ${ro ? `<button class="btn big red" id="unlock" style="margin-top:14px">解除鎖定（將清除所有簽名，需重簽）</button>` :
       `<button class="btn big grn" id="lock" style="margin-top:14px" ${signed ? '' : 'disabled'}>🔒 定稿鎖定（產生防竄改碼）</button>
        <div class="muted" style="margin:6px 4px">建議所有人簽完立即定稿。定稿後內容與照片不可修改，報表會印出 SHA-256 防竄改碼。</div>`}`;
@@ -772,9 +773,20 @@ function tabSign(app, lockMsg) {
         s.absent = r; s.at = Date.now(); s.img = null; addLog(`${s.role} ${s.name}：${r}`);
       }
       if (a === 'clr') { if (!confirm('清除此簽名？')) return; addLog(`清除 ${s.role} ${s.name} 簽名`); s.img = null; s.at = null; s.absent = null; }
+      if (a === 'rm') { if (!confirm(`移除「${s.role}」簽名欄？`)) return; i.signs.splice(+box.dataset.k, 1); addLog(`移除簽名欄 ${s.role}`); }
       await saveNow(); tabSign(app, lockMsg);
     });
   });
+  const AS = $('#addSigner');
+  if (AS) AS.onclick = async () => {
+    const role = (prompt('輸入簽名人員的單位與職稱\n（例：可曜企業有限公司 現場領班、監造單位 監造工程師）') || '').trim(); if (!role) return;
+    i.signs.push({ role, org: '', name: '', img: null, at: null, absent: null }); addLog(`新增簽名欄 ${role}`);
+    if (!S.settings.signers.some(x => x.role === role) && confirm('是否也加入「預設簽名欄位」？\n（之後每次建立會勘紀錄都會自動出現）')) {
+      S.settings.signers.push({ role, org: '', name: '' }); await DB.put('kv', S.settings);
+    }
+    await saveNow(); tabSign(app, lockMsg);
+    const boxes = $$('.sigbox', app); const last = boxes[boxes.length - 1]; last.scrollIntoView({ behavior: 'smooth' }); $('[data-s=name]', last).focus();
+  };
   const L = $('#lock');
   if (L) L.onclick = async () => {
     const miss = i.signs.filter(s => !s.img && !s.absent);
@@ -860,7 +872,7 @@ function trimCanvas(cv) {
 }
 
 /* --- 報表 --- */
-function reportHTML(i, photos) {
+function reportBlocks(i, photos) {
   const st = S.settings;
   const notes = (i.notes || '').split('\n').map(s => s.trim()).filter(Boolean).map(s => s.replace(/^\s*\d+\s*[.、．)]\s*/, ''));
   const rows = i.entries.map((e, k) => {
@@ -868,7 +880,7 @@ function reportHTML(i, photos) {
     return `<tr><td style="text-align:center">${k + 1}</td><td>${esc(e.area)}</td><td>${esc(e.title)}${e.cat ? `<br><span class="small">［${esc(e.cat)}］</span>` : ''}</td>
       <td>${roc(c.first)}</td><td>${roc(e.prevPromise)}</td><td class="${c.postponedNow ? 'red' : ''}">${roc(e.promise)}</td>
       <td style="text-align:center" class="${c.postpones ? 'red' : ''}">${c.postpones || '-'}</td>
-      <td class="${c.overdue ? 'red' : ''}">${esc(e.status)}${c.overdue ? `<br>逾期${days(e.promise, i.date)}天` : ''}${e.status === '已完成' && e.doneDate ? `<br>${roc(e.doneDate)}` : ''}</td>
+      <td class="${c.overdue ? 'red' : ''}">${esc(e.status)}${c.overdue ? `<br>逾期${days(e.promise, i.date)}天` : ''}${e.status === '已完成' && e.doneDate ? `<br>${roc(e.doneDate)}${c.first && !c.delay ? '<br>（如期完成）' : ''}` : ''}</td>
       <td style="text-align:center" class="${c.delay ? 'red' : ''}">${c.delay || '-'}</td>
       <td>${esc(e.note).replace(/\n/g, '<br>')}</td></tr>`;
   }).join('');
@@ -882,7 +894,7 @@ function reportHTML(i, photos) {
     ${s.img ? `<img src="${s.img}">` : s.absent ? `<div class="red" style="padding:6mm 0;text-align:center">${esc(s.absent)}</div>` : '<div style="height:20mm"></div>'}
     <div>姓名：${esc(s.name)}</div><div class="small">${s.at ? '時間：' + rocDT(s.at) : ''}</div></div>`).join('');
   const pairs = []; for (let n = 0; n < phs.length; n += 2) pairs.push(`<div class="phgrid">${phs.slice(n, n + 2).join('')}</div>`);
-  return pages([
+  return [
     `<h1>${esc(st.project)}</h1>
     <div class="sub" style="font-size:17px;font-weight:700">機電工程　定期會勘紀錄（第 ${esc(i.seq)} 次）</div>
     <table class="kv">
@@ -902,8 +914,9 @@ function reportHTML(i, photos) {
     `<h2>四、會同人員簽認</h2>
     <div class="small" style="margin-bottom:4px">以上會勘內容業經各方於現場會同確認。</div>
     <div class="sigs">${sigs}</div>`,
-  ]);
+  ];
 }
+const reportHTML = (i, photos) => pages(reportBlocks(i, photos));
 // 列印時用表格頭尾留白，每頁上下都有邊界，不使用瀏覽器頁首頁尾
 function pages(blocks) {
   return `<div class="rpt"><table class="pgwrap"><thead><tr><td class="sp"></td></tr></thead><tbody>${blocks.map(b => typeof b === 'string' ? `<tr><td>${b}</td></tr>` : `<tr class="brk"><td>${b.h}</td></tr>`).join('')}</tbody><tfoot><tr><td class="sp"></td></tr></tfoot></table></div>`;
@@ -912,12 +925,12 @@ function tabReport(app, lockMsg) {
   const i = S.cur;
   app.innerHTML = lockMsg + `
     ${i.locked ? '' : '<div class="warn">此紀錄尚未定稿，報表會標示「草稿」。</div>'}
-    <div class="row" style="margin-bottom:12px">
-      <button class="btn big pri" id="pr">🖨 列印 / 存成 PDF</button>
-    </div>
-    <div class="muted" style="margin:-4px 4px 10px">Android：按列印→印表機選「另存為 PDF」。iPhone：列印畫面兩指放大預覽→分享→儲存到「檔案」。檔名建議：${rocC(i.date)}_赤崁樓機電會勘紀錄.pdf</div>
+    <button class="btn big pri" id="pdf">📄 產生 PDF（可直接傳 LINE／Email）</button>
+    <button class="btn" id="pr" style="width:100%;margin:8px 0 12px">🖨 列印</button>
     <div class="rptwrap">${reportHTML(i, S.photos)}</div>`;
-  $('#pr').onclick = () => doPrint(reportHTML(i, S.photos), `${rocC(i.date)}_赤崁樓機電會勘紀錄_第${i.seq}次${i.locked ? '' : '_草稿'}`);
+  const fname = `${rocC(i.date)}_赤崁樓機電會勘紀錄_第${i.seq}次${i.locked ? '' : '_草稿'}`;
+  $('#pr').onclick = () => doPrint(reportHTML(i, S.photos), fname);
+  $('#pdf').onclick = () => makePDF(reportBlocks(i, S.photos), fname);
 }
 async function doPrint(html, title) {
   const P = $('#print'); P.innerHTML = html;
@@ -928,13 +941,101 @@ async function doPrint(html, title) {
   setTimeout(() => window.print(), 50);
 }
 
+/* ========== 手機直接產生 PDF（離線可用） ========== */
+function loadLib(src) {
+  if (document.querySelector(`script[data-lib="${src}"]`)) return Promise.resolve();
+  return new Promise((res, rej) => {
+    const sc = document.createElement('script'); sc.src = src; sc.dataset.lib = src;
+    sc.onload = res; sc.onerror = () => { sc.remove(); rej(new Error('無法載入 PDF 元件，請在有網路時重新開啟 App 一次')); };
+    document.head.appendChild(sc);
+  });
+}
+const imgsReady = root => Promise.all($$('img', root).map(im => im.complete ? 0 : new Promise(r => { im.onload = im.onerror = r; })));
+async function makePDF(blocks, name) {
+  const M = $('#modal'); M.classList.add('on');
+  M.innerHTML = `<div class="sheet" style="display:flex;align-items:center;justify-content:center"><div class="card" style="max-width:420px;width:100%;text-align:center"><h3 id="pdfMsg">準備中…</h3><div class="muted">請勿切換畫面</div></div></div>`;
+  const msg = t => { $('#pdfMsg').textContent = t; };
+  const host = document.createElement('div');
+  try {
+    await loadLib('html2canvas.min.js'); await loadLib('jspdf.umd.min.js');
+    // A4 @96dpi：794×1123px；上下 10mm、左右 12mm
+    const PW = 794, PH = 1123, MT = 38, MX = 45, AV = PH - MT * 2;
+    host.style.cssText = 'position:fixed;left:0;top:0;z-index:-1;pointer-events:none';
+    document.body.appendChild(host);
+    const pgs = []; let cur;
+    const newPage = () => {
+      const pg = document.createElement('div'); pg.className = 'rpt';
+      pg.style.cssText = `width:${PW}px;height:${PH}px;padding:${MT}px ${MX}px;box-sizing:border-box;overflow:hidden;background:#fff;max-width:none;margin:0`;
+      cur = document.createElement('div'); cur.style.display = 'flow-root'; pg.appendChild(cur); host.appendChild(pg); pgs.push(pg);
+    };
+    const fits = () => cur.getBoundingClientRect().height <= AV;
+    newPage();
+    for (const blk of blocks.map(b => typeof b === 'string' ? { h: b } : b)) {
+      const el = document.createElement('div'); el.innerHTML = blk.h; cur.appendChild(el); await imgsReady(el);
+      if (fits()) continue;
+      const box = el.querySelector('tbody') || el.querySelector('ol');
+      if (!blk.brk || !box) {   // 不可拆的區塊（照片、簽名）整塊移到下一頁
+        if (cur.children.length > 1) { el.remove(); newPage(); cur.appendChild(el); }
+        continue;
+      }
+      // 可拆的表格／條列：逐列放，滿頁就換頁（表頭重複）
+      const items = [...box.children]; box.innerHTML = '';
+      const tpl = el.cloneNode(true);
+      const topOf = (piece, c) => { let n = c; while (n.parentNode !== piece) n = n.parentNode; return n; };
+      let piece = el, pc = box, idx = 0;
+      while (idx < items.length) {
+        pc.appendChild(items[idx]);
+        if (fits()) { idx++; continue; }
+        items[idx].remove();
+        if (!pc.children.length) {
+          if (cur.children.length > 1) { piece.remove(); newPage(); cur.appendChild(piece); continue; }
+          pc.appendChild(items[idx]); idx++; continue;   // 單列就超過一頁，只能硬放
+        }
+        let t = topOf(piece, pc).nextSibling; while (t) { const nx = t.nextSibling; t.remove(); t = nx; }
+        newPage(); piece = tpl.cloneNode(true);
+        const h2 = piece.querySelector('h2'); if (h2) h2.remove();
+        pc = piece.querySelector('tbody') || piece.querySelector('ol');
+        if (pc.tagName === 'OL') pc.start = idx + 1;
+        cur.appendChild(piece);
+      }
+      if (!fits()) {   // 表格下方的註解放不下就移到下一頁
+        const t = topOf(piece, pc).nextSibling;
+        if (t) { const rest = []; let n = t; while (n) { rest.push(n); n = n.nextSibling; } rest.forEach(x => x.remove()); newPage(); rest.forEach(x => cur.appendChild(x)); }
+      }
+    }
+    window.scrollTo(0, 0);
+    const { jsPDF } = window.jspdf;
+    const pdf = new jsPDF({ unit: 'mm', format: 'a4', compress: true });
+    for (let n = 0; n < pgs.length; n++) {
+      msg(`產生 PDF 第 ${n + 1} / ${pgs.length} 頁…`);
+      const cv = await html2canvas(pgs[n], { scale: 2, backgroundColor: '#ffffff', logging: false, scrollX: 0, scrollY: 0, windowWidth: PW, windowHeight: PH });
+      if (n) pdf.addPage();
+      pdf.addImage(cv.toDataURL('image/jpeg', 0.85), 'JPEG', 0, 0, 210, 297, undefined, 'FAST');
+      cv.width = cv.height = 0;
+    }
+    const blob = pdf.output('blob');
+    const file = new File([blob], name + '.pdf', { type: 'application/pdf' });
+    const canShare = navigator.canShare && navigator.canShare({ files: [file] });
+    M.innerHTML = `<div class="sheet" style="display:flex;align-items:center;justify-content:center"><div class="card" style="max-width:420px;width:100%">
+      <h3>✅ PDF 已產生</h3><div class="muted" style="word-break:break-all">${esc(file.name)}<br>共 ${pgs.length} 頁，${(blob.size / 1048576).toFixed(1)} MB</div>
+      ${canShare ? '<button class="btn big pri" id="pdfShare" style="margin-top:12px">📤 分享（LINE／Email／存到檔案）</button>' : ''}
+      <button class="btn big ${canShare ? '' : 'pri'}" id="pdfSave" style="margin-top:8px">⬇ 下載到手機</button>
+      <button class="btn big" id="pdfClose" style="margin-top:8px">關閉</button></div></div>`;
+    if (canShare) $('#pdfShare').onclick = async () => { try { await navigator.share({ files: [file], title: file.name }); } catch (e) { if (e.name !== 'AbortError') alert('分享失敗：' + e.message); } };
+    $('#pdfSave').onclick = () => { const a = document.createElement('a'); a.href = URL.createObjectURL(file); a.download = file.name; document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 60000); };
+    $('#pdfClose').onclick = closeModal;
+  } catch (e) {
+    console.error(e); closeModal(); alert('PDF 產生失敗：' + e.message);
+  } finally { host.remove(); }
+}
+
 /* ========== 延宕追蹤總表 ========== */
 async function viewItems() {
   S.cur = null; setHeader('延宕追蹤總表', null); mainTabs('items'); markSaved('');
   const [items, insps] = await Promise.all([DB.all('items'), DB.all('insp')]);
   const im = Object.fromEntries(insps.map(x => [x.id, x]));
   items.sort((a, b) => (CLOSED.includes(a.status) - CLOSED.includes(b.status)) || (b.postpones || 0) - (a.postpones || 0) || (a.firstPromise || '9').localeCompare(b.firstPromise || '9'));
-  const tableHTML = forPrint => `<table class="${forPrint ? 'small' : 'tb'}"><tr><th>#</th><th>事項</th><th>區域</th><th>首次承諾</th><th>最新承諾</th><th>延期次數</th><th>延宕天數</th><th>狀態</th><th>歷次會勘紀錄</th></tr>
+  const tableHTML = forPrint => `<table class="${forPrint ? 'small' : 'tb'}"><thead><tr><th>#</th><th>事項</th><th>區域</th><th>首次承諾</th><th>最新承諾</th><th>延期次數</th><th>延宕天數</th><th>狀態</th><th>歷次會勘紀錄</th></tr></thead><tbody>
     ${items.map((it, k) => {
       const c = itemCalc(it);
       const hist = Object.entries(it.history || {}).sort((a, b) => a[1].date.localeCompare(b[1].date))
@@ -942,17 +1043,20 @@ async function viewItems() {
       const red = forPrint ? 'class="red"' : 'style="color:var(--red);font-weight:700"';
       return `<tr><td>${k + 1}</td><td>${esc(it.title)}</td><td>${esc(it.area)}</td><td>${roc(it.firstPromise)}</td>
         <td ${c.overdue ? red : ''}>${roc(it.latestPromise)}</td><td ${it.postpones ? red : ''} style="text-align:center">${it.postpones || 0}</td>
-        <td ${c.delay ? red : ''} style="text-align:center">${c.delay || 0}</td><td>${esc(it.status)}${it.doneDate ? '<br>' + roc(it.doneDate) : ''}</td><td class="small" style="font-size:12px">${hist}</td></tr>`;
-    }).join('')}</table>`;
+        <td ${c.delay ? red : ''} style="text-align:center">${c.delay || 0}</td><td>${esc(it.status)}${it.doneDate ? '<br>' + roc(it.doneDate) + (it.status === '已完成' && it.firstPromise && !c.delay ? '<br>（如期完成）' : '') : ''}</td><td class="small" style="font-size:12px">${hist}</td></tr>`;
+    }).join('')}</tbody></table>`;
   const open = items.filter(i => !CLOSED.includes(i.status));
   $('#app').innerHTML = `
     <div class="card"><b>統計至 ${roc(today())}</b><div class="muted">共 ${items.length} 項；未完成 ${open.length} 項；已逾承諾日 ${open.filter(x => itemCalc(x).overdue).length} 項；累計延期 ${items.reduce((s, x) => s + (x.postpones || 0), 0)} 次。<br>延宕天數＝首次承諾日至今日（已完成者至完成日）。事項內容請在各次會勘紀錄中修改。</div>
-    <button class="btn pri" id="prI" style="margin-top:8px">🖨 列印延宕追蹤總表</button></div>
+    <div class="row" style="margin-top:8px"><button class="btn pri" id="pdfI">📄 產生 PDF</button><button class="btn" id="prI">🖨 列印</button></div></div>
     <div class="scrollx">${tableHTML(false)}</div>`;
-  $('#prI').onclick = () => doPrint(pages([`<h1>${esc(S.settings.project)}</h1><div class="sub" style="font-size:16px;font-weight:700">機電工程（${esc(S.settings.vendor)}）承諾事項延宕追蹤總表</div>
+  const sumBlocks = () => [`<h1>${esc(S.settings.project)}</h1><div class="sub" style="font-size:16px;font-weight:700">機電工程（${esc(S.settings.vendor)}）承諾事項延宕追蹤總表</div>
     <div class="sub">統計日期：${roc(today())}｜共 ${items.length} 項，未完成 ${open.length} 項，累計延期 ${items.reduce((s, x) => s + (x.postpones || 0), 0)} 次</div>`,
     { brk: true, h: tableHTML(true) },
-    `<div class="small">註：延宕天數＝首次承諾完成日起算至統計日（已完成者算至完成日）。資料來源為各次定期會勘紀錄（含各方簽認）。</div>`]), `${rocC(today())}_可曜機電延宕追蹤總表`);
+    `<div class="small">註：延宕天數＝首次承諾完成日起算至統計日（已完成者算至完成日）。資料來源為各次定期會勘紀錄（含各方簽認）。</div>`];
+  const sumName = `${rocC(today())}_可曜機電延宕追蹤總表`;
+  $('#prI').onclick = () => doPrint(pages(sumBlocks()), sumName);
+  $('#pdfI').onclick = () => makePDF(sumBlocks(), sumName);
 }
 
 /* ========== 設定 / 備份 ========== */
@@ -969,7 +1073,8 @@ async function viewSettings() {
     <label class="f">預設會勘地點</label><input data-s="place" value="${esc(st.place)}">
   </div>
   <div class="card"><h3>簽名欄位（新建紀錄時套用）</h3>
-    ${st.signers.map((s, k) => `<div class="row"><div><label class="f">職稱 ${k + 1}</label><input data-g="${k}" data-k="role" value="${esc(s.role)}"></div><div><label class="f">預設姓名</label><input data-g="${k}" data-k="name" value="${esc(s.name)}"></div></div>`).join('')}
+    ${st.signers.map((s, k) => `<div class="row" style="align-items:flex-end"><div style="flex:2 1 180px"><label class="f">單位／職稱 ${k + 1}</label><input data-g="${k}" data-k="role" value="${esc(s.role)}" placeholder="例：可曜企業有限公司 現場領班"></div><div><label class="f">預設姓名</label><input data-g="${k}" data-k="name" value="${esc(s.name)}"></div><button class="btn red" data-delsig="${k}" style="flex:0 0 auto">刪除</button></div>`).join('')}
+    <button class="btn" id="addSig" style="margin-top:10px">＋ 新增簽名欄位</button>
   </div>
   <div class="card"><h3>位置選單（拍攝位置／區域）</h3>
     <label class="f">一行一個位置</label>
@@ -987,10 +1092,15 @@ async function viewSettings() {
     <div class="muted">將 115/08/20 手寫會勘紀錄的 8 項事項及承諾日建為「紙本補登」紀錄，作為延宕追蹤的起點。<b>日期為辨識手寫字，匯入後請逐項核對。</b></div>
     <button class="btn" id="seed820" style="margin-top:8px">匯入 115/08/20 手寫事項</button>
   </div>
-  <div class="muted" style="text-align:center">版本 1.3｜離線可用</div>`;
+  <div class="muted" style="text-align:center">版本 1.4｜離線可用</div>`;
   const save = async () => { await DB.put('kv', st); markSaved('已儲存 ✓'); };
   $$('[data-s]').forEach(el => el.oninput = () => { st[el.dataset.s] = el.value; save(); });
   $$('[data-g]').forEach(el => el.oninput = () => { st.signers[+el.dataset.g][el.dataset.k] = el.value; save(); });
+  $$('[data-delsig]').forEach(b => b.onclick = async () => {
+    const k = +b.dataset.delsig; if (!confirm(`刪除預設簽名欄位「${st.signers[k].role || '（未命名）'}」？\n（已建立的會勘紀錄不受影響）`)) return;
+    st.signers.splice(k, 1); await save(); viewSettings();
+  });
+  $('#addSig').onclick = async () => { st.signers.push({ role: '', org: '', name: '' }); await save(); await viewSettings(); const r = $$('[data-k=role]'); r[r.length - 1].focus(); };
   $('#stLocs').oninput = e => { st.locations = e.target.value.split('\n').map(x => x.trim()).filter(Boolean); save(); };
   $('#stStamp').onchange = e => { st.stamp = e.target.checked; save(); };
   $('#stGps').onchange = e => { st.gps = e.target.checked; save(); if (st.gps) navigator.geolocation?.getCurrentPosition(() => { }, () => { }); };
