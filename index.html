@@ -1,0 +1,1029 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#1f3a5f">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="機電會勘">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icon-192.png">
+<link rel="icon" href="icon-192.png">
+<title>機電會勘紀錄</title>
+<style>
+:root{--pri:#1f3a5f;--pri2:#2d5a8e;--bg:#eef2f7;--card:#fff;--line:#d5dce6;--tx:#1b2430;--mut:#667385;--red:#d62828;--org:#e07a00;--grn:#1f8a4c;--yel:#ffde59}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--bg);color:var(--tx);font:16px/1.5 system-ui,-apple-system,"Noto Sans TC","Microsoft JhengHei",sans-serif;-webkit-text-size-adjust:100%}
+button,input,select,textarea{font:inherit;color:inherit}
+header#top{position:sticky;top:0;z-index:20;background:var(--pri);color:#fff;padding:calc(env(safe-area-inset-top) + 8px) 12px 8px;display:flex;align-items:center;gap:8px}
+header#top .ttl{flex:1;font-weight:700;font-size:17px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+header#top button{background:transparent;border:1px solid rgba(255,255,255,.4);color:#fff;border-radius:8px;padding:6px 10px;min-height:38px}
+#net{font-size:12px;padding:2px 8px;border-radius:10px;background:#3b7d4f}
+#net.off{background:#8a3b3b}
+#saved{font-size:12px;opacity:.8;min-width:48px;text-align:right}
+main{max-width:860px;margin:0 auto;padding:12px 12px calc(90px + env(safe-area-inset-bottom))}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px;margin-bottom:12px}
+.card h3{margin:0 0 8px;font-size:16px}
+.row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.row>*{flex:1 1 140px}
+label.f{display:block;font-size:13px;color:var(--mut);margin:8px 0 2px}
+input[type=text],input[type=date],input[type=time],input:not([type]),select,textarea{width:100%;border:1px solid var(--line);border-radius:8px;padding:10px;background:#fff;min-height:44px}
+textarea{min-height:90px;resize:vertical}
+input:disabled,select:disabled,textarea:disabled{background:#f3f5f8;color:#333}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;border:1px solid var(--line);background:#fff;border-radius:10px;padding:10px 14px;min-height:46px;font-weight:600;cursor:pointer}
+.btn.pri{background:var(--pri);border-color:var(--pri);color:#fff}
+.btn.red{background:#fff;border-color:var(--red);color:var(--red)}
+.btn.grn{background:var(--grn);border-color:var(--grn);color:#fff}
+.btn.big{width:100%;font-size:18px;min-height:56px}
+.btn:disabled{opacity:.45}
+.muted{color:var(--mut);font-size:13px}
+.tag{display:inline-block;font-size:12px;padding:1px 8px;border-radius:10px;background:#e6ebf2;color:#33475e;margin-right:4px;white-space:nowrap}
+.tag.red{background:#fde2e2;color:#a31515}.tag.org{background:#fff0d9;color:#8a4b00}.tag.grn{background:#dcf3e5;color:#16663a}.tag.blu{background:#dde9fb;color:#1d4c8f}
+.stats{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.stat{background:#fff;border:1px solid var(--line);border-radius:12px;padding:10px;text-align:center}
+.stat b{display:block;font-size:26px}
+.list .it{display:flex;gap:10px;align-items:center;padding:12px;border:1px solid var(--line);border-radius:12px;background:#fff;margin-bottom:8px;cursor:pointer}
+.list .it .grow{flex:1;min-width:0}
+.tabs{position:fixed;left:0;right:0;bottom:0;z-index:20;background:#fff;border-top:1px solid var(--line);display:flex;padding-bottom:env(safe-area-inset-bottom)}
+.tabs a{flex:1;text-align:center;padding:8px 2px 6px;color:var(--mut);text-decoration:none;font-size:12px}
+.tabs a span{display:block;font-size:20px;line-height:1.2}
+.tabs a.on{color:var(--pri);font-weight:700;box-shadow:inset 0 3px 0 var(--pri)}
+.entry{border-left:5px solid var(--line)}
+.entry.overdue{border-left-color:var(--red)}.entry.done{border-left-color:var(--grn)}.entry.prog{border-left-color:var(--pri2)}
+.entry .hd{display:flex;gap:8px;align-items:flex-start}
+.entry .no{font-weight:800;color:var(--pri);min-width:28px}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px}
+.ph{background:#fff;border:1px solid var(--line);border-radius:10px;overflow:hidden;cursor:pointer}
+.ph img{width:100%;aspect-ratio:4/3;object-fit:cover;display:block;background:#ccd}
+.ph div{padding:6px 8px;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.sig{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:12px}
+.sigbox{border:1px solid var(--line);border-radius:12px;background:#fff;padding:12px}
+.sigbox .img{height:110px;border:1px dashed #aab;border-radius:8px;display:flex;align-items:center;justify-content:center;background:#fafbfd;margin:8px 0}
+.sigbox .img img{max-height:104px;max-width:100%}
+.lockbar{background:#fff7d6;border:1px solid #e9cf6b;border-radius:10px;padding:10px 12px;margin-bottom:12px;font-size:14px}
+.warn{background:#fde2e2;border:1px solid #f0a5a5;border-radius:10px;padding:10px 12px;margin-bottom:12px;font-size:14px}
+table.tb{width:100%;border-collapse:collapse;font-size:14px;background:#fff}
+table.tb th,table.tb td{border:1px solid var(--line);padding:6px;vertical-align:top}
+table.tb th{background:#eef2f7}
+.scrollx{overflow-x:auto}
+/* modal */
+#modal{display:none;position:fixed;inset:0;z-index:50;background:rgba(10,15,25,.92)}
+#modal.on{display:block}
+.anno{position:absolute;inset:0;background:#0b0f16;display:flex;flex-direction:column;padding-top:env(safe-area-inset-top);padding-bottom:env(safe-area-inset-bottom)}
+.atools,.abar{display:flex;gap:6px;padding:6px;overflow-x:auto;background:#141b26;flex:0 0 auto}
+.atools button,.abar button{flex:0 0 auto;min-width:48px;min-height:46px;border-radius:10px;border:2px solid #3a4658;background:#222c3b;color:#fff;font-size:15px;padding:4px 10px}
+.atools button.on,.abar button.on{border-color:var(--yel);background:#39465a}
+.abar .clr{width:40px;min-width:40px;padding:0}
+.abar .sep{flex:0 0 1px;background:#3a4658;margin:4px 2px}
+.astage{flex:1;display:flex;align-items:center;justify-content:center;overflow:hidden;min-height:0}
+.astage canvas{max-width:100%;max-height:100%;touch-action:none;background:#000}
+.sheet{position:absolute;left:0;right:0;bottom:0;top:0;background:var(--bg);overflow:auto;padding:calc(env(safe-area-inset-top) + 10px) 12px calc(env(safe-area-inset-bottom) + 20px)}
+.sheet .inner{max-width:860px;margin:0 auto}
+.sigpad{position:absolute;inset:0;display:flex;flex-direction:column;background:#fff;padding:calc(env(safe-area-inset-top) + 8px) 8px calc(env(safe-area-inset-bottom) + 8px)}
+.sigpad canvas{flex:1;width:100%;border:2px dashed #99a;border-radius:10px;touch-action:none;background:#fff;min-height:0}
+.toast{position:fixed;left:50%;bottom:90px;transform:translateX(-50%);background:#1b2430;color:#fff;padding:10px 16px;border-radius:20px;z-index:99;font-size:14px;max-width:90%}
+/* report */
+#print{display:none}
+.rpt{background:#fff;color:#000;font-family:"Noto Serif TC","PMingLiU","MingLiU",serif;font-size:13px;line-height:1.5;padding:14mm 12mm;max-width:210mm;margin:0 auto}
+.rpt h1{text-align:center;font-size:20px;margin:0 0 4px}
+.rpt .sub{text-align:center;font-size:13px;margin-bottom:10px}
+.rpt h2{font-size:15px;margin:14px 0 6px;border-bottom:2px solid #000;padding-bottom:2px}
+.rpt table{width:100%;border-collapse:collapse}
+.rpt td,.rpt th{border:1px solid #000;padding:4px 6px;vertical-align:top}
+.rpt th{background:#eee;font-weight:700;white-space:nowrap}
+.rpt .kv th{width:16%;text-align:center}
+.rpt ol{margin:0;padding-left:22px}
+.rpt .red{color:#b00000;font-weight:700}
+.rpt .phgrid{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.rpt .phc{border:1px solid #000;break-inside:avoid;page-break-inside:avoid}
+.rpt .phc img{width:100%;display:block;max-height:80mm;object-fit:contain;background:#f4f4f4}
+.rpt .phc .cap{padding:4px 6px;font-size:12px;border-top:1px solid #000}
+.rpt .phc .cap b{display:inline-block;min-width:4.5em}
+.rpt .sigs{display:grid;grid-template-columns:1fr 1fr;gap:0;border:1px solid #000;break-inside:avoid;page-break-inside:avoid}
+.rpt .sigs>div{border:1px solid #000;padding:6px;min-height:34mm}
+.rpt .sigs .role{font-weight:700}
+.rpt .sigs img{height:20mm;max-width:100%;display:block;margin:2px auto}
+.rpt .foot{margin-top:10px;font-size:10px;color:#333;word-break:break-all;border-top:1px solid #999;padding-top:4px}
+.rpt .avoid{break-inside:avoid;page-break-inside:avoid}
+.rpt .small{font-size:11px}
+.rptwrap{overflow-x:auto;background:#888;padding:8px;border-radius:10px}
+@media print{
+  @page{size:A4;margin:10mm}
+  html,body{background:#fff}
+  body>*:not(#print){display:none!important}
+  #print{display:block!important}
+  .rpt{padding:0;max-width:none}
+}
+</style>
+</head>
+<body>
+<header id="top">
+  <button id="back" hidden>‹ 返回</button>
+  <div class="ttl" id="ttl">機電會勘紀錄</div>
+  <span id="saved"></span>
+  <span id="net">在線</span>
+</header>
+<main id="app"></main>
+<nav class="tabs" id="tabs"></nav>
+<div id="modal"></div>
+<div id="print"></div>
+
+<script>
+'use strict';
+/* ========== 基本工具 ========== */
+const $ = (s, r = document) => r.querySelector(s);
+const $$ = (s, r = document) => [...r.querySelectorAll(s)];
+const esc = v => String(v ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+const pad = n => String(n).padStart(2, '0');
+const ymd = t => { const d = new Date(t); return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()); };
+const today = () => ymd(Date.now());
+const hm = t => { const d = new Date(t); return pad(d.getHours()) + ':' + pad(d.getMinutes()); };
+const fmtDT = t => t ? ymd(t).replace(/-/g, '/') + ' ' + hm(t) : '';
+const WK = '日一二三四五六';
+const wk = d => d ? WK[new Date(d + 'T00:00').getDay()] : '';
+const roc = d => { if (!d) return ''; const [y, m, dd] = d.split('-'); return `${+y - 1911}/${m}/${dd}`; };
+const rocC = d => { if (!d) return ''; const [y, m, dd] = d.split('-'); return `${+y - 1911}${m}${dd}`; };
+const rocDT = t => t ? roc(ymd(t)) + ' ' + hm(t) : '';
+const days = (a, b) => Math.round((new Date(b + 'T00:00') - new Date(a + 'T00:00')) / 864e5);
+function nextThu(from = today()) { const d = new Date(from + 'T00:00'); const add = (4 - d.getDay() + 7) % 7; d.setDate(d.getDate() + add); return ymd(d); }
+function toast(msg, ms = 2200) { const t = document.createElement('div'); t.className = 'toast'; t.textContent = msg; document.body.appendChild(t); setTimeout(() => t.remove(), ms); }
+
+const STATUS = ['未開始', '施工中', '延宕', '待確認', '已完成', '取消'];
+const CLOSED = ['已完成', '取消'];
+const CATS = ['電氣', '弱電', '給排水', '消防', '建築配合', '材料進場', '其他'];
+const AREAS = ['B2F', 'B1F', '1F', '2F', 'RF屋頂', 'B2F 水塔機房', 'B1F 排風機房', '旅服中心', '禮堂', '梯廳', '儲藏室', '活動中心', '戶外景觀'];
+
+/* ========== IndexedDB ========== */
+const DB = {
+  d: null,
+  open() {
+    return new Promise((res, rej) => {
+      const r = indexedDB.open('mep-inspect', 1);
+      r.onupgradeneeded = () => {
+        const d = r.result;
+        d.createObjectStore('kv', { keyPath: 'key' });
+        d.createObjectStore('insp', { keyPath: 'id' });
+        d.createObjectStore('items', { keyPath: 'id' });
+        d.createObjectStore('photos', { keyPath: 'id' }).createIndex('insp', 'inspId');
+      };
+      r.onsuccess = () => { this.d = r.result; res(); };
+      r.onerror = () => rej(r.error);
+    });
+  },
+  run(store, mode, fn) {
+    return new Promise((res, rej) => {
+      const t = this.d.transaction(store, mode); const q = fn(t.objectStore(store));
+      t.oncomplete = () => res(q && q.result); t.onerror = () => rej(t.error); t.onabort = () => rej(t.error);
+    });
+  },
+  get(s, k) { return this.run(s, 'readonly', o => o.get(k)); },
+  put(s, v) { return this.run(s, 'readwrite', o => o.put(v)); },
+  del(s, k) { return this.run(s, 'readwrite', o => o.delete(k)); },
+  all(s) { return this.run(s, 'readonly', o => o.getAll()); },
+  photosOf(id) { return this.run('photos', 'readonly', o => o.index('insp').getAll(id)); },
+};
+
+const DEFAULT_SETTINGS = {
+  key: 'settings',
+  project: '赤崁樓停車場二期新建工程',
+  gc: '升富營造',
+  vendor: '可曜企業有限公司',
+  place: '赤崁樓停車場二期工地',
+  signers: [
+    { role: '營造廠 機電工程師', org: '升富營造', name: '' },
+    { role: '營造廠 現場工程師', org: '升富營造', name: '' },
+    { role: '營造廠 品管工程師', org: '升富營造', name: '' },
+    { role: '可曜企業有限公司 工地管理人', org: '可曜企業有限公司', name: '' },
+  ],
+  stamp: true, gps: true, lastBackup: 0,
+};
+const S = { settings: null, cur: null, photos: [] };
+
+/* ========== 圖片處理 ========== */
+const MAXPX = 1600;
+async function loadBitmap(blob) {
+  if (window.createImageBitmap) { try { return await createImageBitmap(blob, { imageOrientation: 'from-image' }); } catch (e) { } }
+  return new Promise((res, rej) => { const i = new Image(); i.onload = () => res(i); i.onerror = rej; i.src = URL.createObjectURL(blob); });
+}
+function fit(w, h, m) { const k = Math.min(1, m / Math.max(w, h)); return { w: Math.round(w * k), h: Math.round(h * k) }; }
+function drawShape(x, s, u) {
+  x.save();
+  x.strokeStyle = x.fillStyle = s.c; x.lineWidth = s.w * u * 1.6; x.lineCap = x.lineJoin = 'round';
+  x.shadowColor = 'rgba(0,0,0,.55)'; x.shadowBlur = u * 1.2;
+  const a = s.p[0], b = s.p[s.p.length - 1];
+  switch (s.t) {
+    case 'rect': x.strokeRect(Math.min(a[0], b[0]), Math.min(a[1], b[1]), Math.abs(b[0] - a[0]), Math.abs(b[1] - a[1])); break;
+    case 'circle': x.beginPath(); x.ellipse((a[0] + b[0]) / 2, (a[1] + b[1]) / 2, Math.abs(b[0] - a[0]) / 2 || 1, Math.abs(b[1] - a[1]) / 2 || 1, 0, 0, Math.PI * 2); x.stroke(); break;
+    case 'line': case 'arrow':
+      x.beginPath(); x.moveTo(a[0], a[1]); x.lineTo(b[0], b[1]); x.stroke();
+      if (s.t === 'arrow') {
+        const g = Math.atan2(b[1] - a[1], b[0] - a[0]), L = s.w * u * 6;
+        x.beginPath(); x.moveTo(b[0], b[1]);
+        x.lineTo(b[0] - L * Math.cos(g - .45), b[1] - L * Math.sin(g - .45));
+        x.lineTo(b[0] - L * Math.cos(g + .45), b[1] - L * Math.sin(g + .45));
+        x.closePath(); x.fill();
+      } break;
+    case 'free': x.beginPath(); s.p.forEach((p, i) => i ? x.lineTo(p[0], p[1]) : x.moveTo(p[0], p[1])); x.stroke(); break;
+    case 'text': {
+      const fs = Math.round(s.w * u * 8);
+      x.font = `bold ${fs}px system-ui,"Noto Sans TC","Microsoft JhengHei",sans-serif`; x.textBaseline = 'top'; x.shadowBlur = 0;
+      x.lineWidth = Math.max(2, fs / 6); x.strokeStyle = 'rgba(0,0,0,.8)';
+      x.strokeText(s.text, a[0], a[1]); x.fillText(s.text, a[0], a[1]);
+    }
+  }
+  x.restore();
+}
+function stamp(x, w, h, u, p) {
+  const lines = [fmtDT(p.takenAt) + (p.loc ? '　' + p.loc : ''), S.settings.project + ' 機電會勘'];
+  const fs = Math.round(u * 5.5); x.font = `${fs}px system-ui,"Noto Sans TC","Microsoft JhengHei",sans-serif`;
+  const pd = fs * .5, tw = Math.max(...lines.map(l => x.measureText(l).width)), bh = lines.length * fs * 1.3 + pd * 1.2;
+  x.fillStyle = 'rgba(0,0,0,.55)'; x.fillRect(w - tw - pd * 2, h - bh, tw + pd * 2, bh);
+  x.fillStyle = '#ffde59'; x.textBaseline = 'top';
+  lines.forEach((l, i) => x.fillText(l, w - tw - pd, h - bh + pd * .6 + i * fs * 1.3));
+}
+async function renderPhoto(p) {
+  const bmp = await loadBitmap(p.orig); const { w, h } = fit(bmp.width, bmp.height, MAXPX);
+  const c = document.createElement('canvas'); c.width = w; c.height = h; const x = c.getContext('2d');
+  x.drawImage(bmp, 0, 0, w, h); const u = Math.max(w, h) / 400;
+  (p.shapes || []).forEach(s => drawShape(x, s, u));
+  if (S.settings.stamp) stamp(x, w, h, u, p);
+  p.annot = await new Promise(r => c.toBlob(r, 'image/jpeg', .86)); p.w = w; p.h = h; p.ver = (p.ver || 0) + 1;
+}
+const urlCache = new Map();
+function photoURL(p) {
+  const k = p.id + ':' + (p.ver || 0);
+  if (!urlCache.has(k)) urlCache.set(k, URL.createObjectURL(p.annot || p.orig));
+  return urlCache.get(k);
+}
+async function sha(buf) {
+  if (!crypto.subtle) return '（此連線不支援雜湊，請用 https 開啟）';
+  const d = await crypto.subtle.digest('SHA-256', buf);
+  return [...new Uint8Array(d)].map(b => b.toString(16).padStart(2, '0')).join('');
+}
+const blobToDataURL = b => new Promise(r => { const f = new FileReader(); f.onload = () => r(f.result); f.readAsDataURL(b); });
+const dataURLToBlob = async u => (await fetch(u)).blob();
+
+/* ========== 事項計算 ========== */
+function entryCalc(e, asOf) {
+  const postponedNow = !!(e.prevPromise && e.promise && e.promise > e.prevPromise);
+  const postpones = (e.basePostpones || 0) + (postponedNow ? 1 : 0);
+  const closed = CLOSED.includes(e.status);
+  const overdue = !closed && e.promise && e.promise < asOf;
+  const first = e.firstPromise || e.promise;
+  const ref = e.status === '已完成' ? (e.doneDate || asOf) : asOf;
+  const delay = first && e.status !== '取消' && ref > first ? days(first, ref) : 0;
+  return { postponedNow, postpones, overdue, delay, first };
+}
+function itemCalc(it) {
+  const closed = CLOSED.includes(it.status), ref = it.status === '已完成' ? (it.doneDate || today()) : today();
+  const delay = it.firstPromise && it.status !== '取消' && ref > it.firstPromise ? days(it.firstPromise, ref) : 0;
+  return { closed, overdue: !closed && it.latestPromise && it.latestPromise < today(), delay };
+}
+function entryFromItem(it) {
+  return {
+    itemId: it.id, title: it.title, area: it.area || '', cat: it.cat || '',
+    firstPromise: it.firstPromise || '', prevPromise: it.latestPromise || '', promise: it.latestPromise || '',
+    basePostpones: it.postpones || 0, status: it.status || '未開始', note: '', doneDate: it.doneDate || '',
+  };
+}
+async function syncItems(insp) {
+  for (const e of insp.entries) {
+    const it = await DB.get('items', e.itemId); if (!it) continue;
+    const c = entryCalc(e, insp.date);
+    it.history = it.history || {};
+    it.history[insp.id] = { date: insp.date, seq: insp.seq, status: e.status, promise: e.promise, note: e.note, postponed: c.postponedNow };
+    if (!it.lastInspDate || insp.date >= it.lastInspDate) {
+      Object.assign(it, {
+        title: e.title, area: e.area, cat: e.cat, status: e.status, latestPromise: e.promise,
+        firstPromise: e.firstPromise || e.promise || '', postpones: c.postpones, lastInspDate: insp.date,
+        doneDate: e.status === '已完成' ? (e.doneDate || insp.date) : '',
+      });
+    }
+    await DB.put('items', it);
+  }
+}
+
+/* ========== 儲存 ========== */
+let saveTimer = null;
+function markSaved(t) { $('#saved').textContent = t; }
+function scheduleSave() {
+  markSaved('儲存中…'); clearTimeout(saveTimer);
+  saveTimer = setTimeout(saveNow, 500);
+}
+async function saveNow() {
+  clearTimeout(saveTimer); saveTimer = null;
+  if (!S.cur) return;
+  S.cur.updatedAt = Date.now();
+  await DB.put('insp', S.cur); await syncItems(S.cur);
+  markSaved('已儲存 ✓');
+}
+function addLog(a) { S.cur.log.push({ t: Date.now(), a }); }
+
+/* ========== 版面 ========== */
+function setHeader(title, back) {
+  $('#ttl').textContent = title;
+  const b = $('#back'); b.hidden = !back; b.onclick = () => { location.hash = back; };
+}
+function setTabs(items) {
+  $('#tabs').innerHTML = items.map(t => `<a href="${t.h}" class="${t.on ? 'on' : ''}"><span>${t.i}</span>${t.l}</a>`).join('');
+}
+const mainTabs = on => setTabs([
+  { h: '#/', i: '🏠', l: '首頁', on: on === 'home' },
+  { h: '#/items', i: '📋', l: '延宕追蹤', on: on === 'items' },
+  { h: '#/settings', i: '⚙️', l: '設定/備份', on: on === 'settings' },
+]);
+
+/* ========== 首頁 ========== */
+async function viewHome() {
+  S.cur = null; setHeader('機電會勘紀錄', null); mainTabs('home'); markSaved('');
+  const [insps, items] = await Promise.all([DB.all('insp'), DB.all('items')]);
+  insps.sort((a, b) => b.date.localeCompare(a.date) || b.createdAt - a.createdAt);
+  const open = items.filter(i => !CLOSED.includes(i.status));
+  const overdue = open.filter(i => itemCalc(i).overdue);
+  const totalPost = items.reduce((s, i) => s + (i.postpones || 0), 0);
+  const nt = nextThu(); const isThu = nt === today();
+  const lb = S.settings.lastBackup; const needBk = !lb || Date.now() - lb > 7 * 864e5;
+  $('#app').innerHTML = `
+    ${needBk && insps.length ? `<div class="warn">⚠️ 資料只存在這支手機。${lb ? '上次備份：' + fmtDT(lb) : '尚未備份過'}，建議回辦公室有網路時到「設定/備份」匯出備份。</div>` : ''}
+    <div class="card">
+      <h3>${isThu ? '📅 今天是週四會勘日' : '📅 下次週四會勘'}：${roc(nt)}（${wk(nt)}）</h3>
+      <div class="muted">${esc(S.settings.project)}｜廠商：${esc(S.settings.vendor)}</div>
+      <label class="f">會勘日期</label>
+      <div class="row"><input type="date" id="newDate" value="${today()}"><button class="btn pri" id="newBtn" style="flex:0 0 auto">＋ 建立會勘紀錄</button></div>
+      <div class="muted" style="margin-top:6px">建立時會自動帶入所有「未完成」的追蹤事項。</div>
+    </div>
+    <div class="stats">
+      <div class="stat"><b>${open.length}</b><span class="muted">追蹤中事項</span></div>
+      <div class="stat"><b style="color:var(--red)">${overdue.length}</b><span class="muted">已逾承諾日</span></div>
+      <div class="stat"><b style="color:var(--org)">${totalPost}</b><span class="muted">累計延期次數</span></div>
+    </div>
+    <h3 style="margin:16px 4px 8px">會勘紀錄（${insps.length}）</h3>
+    <div class="list">${insps.map(i => {
+      const sc = i.signs.filter(s => s.img).length;
+      return `<div class="it" data-id="${i.id}">
+        <div style="font-size:28px">${i.locked ? '🔒' : '📝'}</div>
+        <div class="grow"><b>第${esc(i.seq)}次｜${roc(i.date)}（${wk(i.date)}）</b><br>
+        <span class="muted">事項 ${i.entries.length}｜簽名 ${sc}/${i.signs.length}</span>
+        ${i.locked ? '<span class="tag grn">已定稿</span>' : '<span class="tag org">草稿</span>'}${i.paper ? '<span class="tag blu">紙本補登</span>' : ''}</div>
+        <div>›</div></div>`;
+    }).join('') || '<div class="muted" style="padding:8px">尚無紀錄</div>'}</div>`;
+  $('#newBtn').onclick = async () => { const d = $('#newDate').value || today(); const id = await newInsp(d); location.hash = '#/insp/' + id + '/basic'; };
+  $$('.list .it').forEach(el => el.onclick = () => location.hash = '#/insp/' + el.dataset.id + '/basic');
+}
+async function newInsp(date, extra = {}) {
+  const [all, items] = await Promise.all([DB.all('insp'), DB.all('items')]);
+  const prev = all.filter(i => i.date <= date).sort((a, b) => b.date.localeCompare(a.date))[0];
+  const insp = Object.assign({
+    id: uid(), date, seq: all.length + 1, timeStart: hm(Date.now()), timeEnd: '', place: S.settings.place, weather: '',
+    attendees: prev ? prev.attendees : '', notes: '', entries: [],
+    signs: S.settings.signers.map(s => ({ role: s.role, org: s.org, name: s.name, img: null, at: null, absent: null })),
+    log: [{ t: Date.now(), a: '建立紀錄' }], locked: null, createdAt: Date.now(),
+  }, extra);
+  items.filter(x => !CLOSED.includes(x.status)).sort((a, b) => (a.no || 0) - (b.no || 0)).forEach(it => insp.entries.push(entryFromItem(it)));
+  await DB.put('insp', insp);
+  return insp.id;
+}
+
+/* ========== 會勘紀錄編輯 ========== */
+async function viewInsp(id, tab) {
+  if (!S.cur || S.cur.id !== id) {
+    if (saveTimer) await saveNow();
+    S.cur = await DB.get('insp', id);
+    if (!S.cur) { location.hash = '#/'; return; }
+    S.photos = (await DB.photosOf(id)).sort((a, b) => a.createdAt - b.createdAt);
+  }
+  const i = S.cur;
+  setHeader(`第${i.seq}次 ${roc(i.date)} 會勘`, '#/');
+  const b = '#/insp/' + id + '/';
+  setTabs([
+    { h: b + 'basic', i: '📝', l: '基本', on: tab === 'basic' },
+    { h: b + 'items', i: '✅', l: `事項(${i.entries.length})`, on: tab === 'items' },
+    { h: b + 'photos', i: '📷', l: `照片(${S.photos.length})`, on: tab === 'photos' },
+    { h: b + 'sign', i: '✍️', l: '簽名', on: tab === 'sign' },
+    { h: b + 'report', i: '📄', l: '報表', on: tab === 'report' },
+  ]);
+  const lockMsg = i.locked ? `<div class="lockbar">🔒 本紀錄已於 ${fmtDT(i.locked.at)} 定稿鎖定，內容不可修改。<br><span class="muted">防竄改碼 SHA-256：${esc(i.locked.hash.slice(0, 32))}…</span></div>` : '';
+  const app = $('#app');
+  ({ basic: tabBasic, items: tabItems, photos: tabPhotos, sign: tabSign, report: tabReport }[tab] || tabBasic)(app, lockMsg);
+  window.scrollTo(0, 0);
+}
+const RO = () => S.cur && S.cur.locked ? 'disabled' : '';
+
+function tabBasic(app, lockMsg) {
+  const i = S.cur, ro = RO();
+  app.innerHTML = lockMsg + `
+  <div class="card">
+    <div class="row">
+      <div><label class="f">會勘次別（第幾次）</label><input data-f="seq" value="${esc(i.seq)}" inputmode="numeric" ${ro}></div>
+      <div><label class="f">會勘日期</label><input type="date" data-f="date" value="${esc(i.date)}" ${ro}></div>
+    </div>
+    <div class="row">
+      <div><label class="f">開始時間</label><input type="time" data-f="timeStart" value="${esc(i.timeStart)}" ${ro}></div>
+      <div><label class="f">結束時間</label><input type="time" data-f="timeEnd" value="${esc(i.timeEnd)}" ${ro}></div>
+    </div>
+    <div class="row">
+      <div><label class="f">會勘地點</label><input data-f="place" value="${esc(i.place)}" ${ro}></div>
+      <div><label class="f">天氣</label><input data-f="weather" value="${esc(i.weather)}" list="dlWeather" ${ro}></div>
+    </div>
+    <datalist id="dlWeather"><option>晴</option><option>陰</option><option>雨</option><option>颱風</option></datalist>
+    <label class="f">出席人員（單位／姓名）</label>
+    <textarea data-f="attendees" placeholder="例：升富營造 鄭博凱、可曜企業 ○○○" ${ro}>${esc(i.attendees)}</textarea>
+    <label class="f">會勘說明 / 會議結論（一行一點，報表自動編號）</label>
+    <textarea data-f="notes" style="min-height:180px" placeholder="1.本次會勘針對停車場B1、B2相關進度進行確認。&#10;2.……" ${ro}>${esc(i.notes)}</textarea>
+  </div>
+  ${i.locked ? '' : `<button class="btn big pri" onclick="location.hash='#/insp/${i.id}/items'">下一步：事項追蹤 ›</button>`}
+  <div class="card" style="margin-top:12px">
+    <h3>操作紀錄（稽核軌跡）</h3>
+    <div class="muted">${i.log.map(l => fmtDT(l.t) + '　' + esc(l.a)).join('<br>')}</div>
+    ${i.locked ? '' : `<button class="btn red" id="delInsp" style="margin-top:10px">刪除此筆會勘紀錄</button>`}
+  </div>`;
+  bindFields(app);
+  const d = $('#delInsp'); if (d) d.onclick = deleteInsp;
+}
+function bindFields(root) {
+  $$('[data-f]', root).forEach(el => el.addEventListener('input', () => {
+    let v = el.value; S.cur[el.dataset.f] = v;
+    if (el.dataset.f === 'date' || el.dataset.f === 'seq') setHeader(`第${S.cur.seq}次 ${roc(S.cur.date)} 會勘`, '#/');
+    scheduleSave();
+  }));
+}
+async function deleteInsp() {
+  const i = S.cur;
+  if (!confirm(`確定刪除「第${i.seq}次 ${roc(i.date)}」整筆會勘紀錄（含 ${S.photos.length} 張照片）？此動作無法復原。`)) return;
+  if (prompt('請輸入「刪除」兩字確認') !== '刪除') return;
+  for (const p of S.photos) await DB.del('photos', p.id);
+  for (const e of i.entries) {
+    const it = await DB.get('items', e.itemId); if (!it) continue;
+    if (it.history) delete it.history[i.id];
+    if (!it.history || !Object.keys(it.history).length) await DB.del('items', it.id); else await DB.put('items', it);
+  }
+  await DB.del('insp', i.id); S.cur = null; location.hash = '#/';
+}
+
+/* --- 事項 --- */
+function tabItems(app, lockMsg) {
+  const i = S.cur, ro = RO();
+  const cards = i.entries.map((e, k) => {
+    const c = entryCalc(e, i.date);
+    const cls = e.status === '已完成' ? 'done' : c.overdue ? 'overdue' : e.status === '施工中' ? 'prog' : '';
+    const nph = S.photos.filter(p => p.itemId === e.itemId).length;
+    return `<div class="card entry ${cls}" data-k="${k}">
+      <div class="hd"><div class="no">${k + 1}.</div><div style="flex:1">
+        <input data-e="title" value="${esc(e.title)}" placeholder="事項內容（例：弱電箱到貨定位）" ${ro}>
+        <div style="margin-top:6px">
+          ${c.overdue ? `<span class="tag red">已逾承諾日 ${days(e.promise, i.date)} 天</span>` : ''}
+          ${c.postpones ? `<span class="tag org">延期 ${c.postpones} 次${c.postponedNow ? '（本次再延）' : ''}</span>` : ''}
+          ${c.delay ? `<span class="tag red">較首次承諾延宕 ${c.delay} 天</span>` : ''}
+          ${e.status === '已完成' ? '<span class="tag grn">已完成</span>' : ''}
+          ${nph ? `<span class="tag blu">照片 ${nph}</span>` : ''}
+        </div></div></div>
+      <div class="row">
+        <div><label class="f">區域</label><input data-e="area" value="${esc(e.area)}" list="dlArea" ${ro}></div>
+        <div><label class="f">類別</label><select data-e="cat" ${ro}><option></option>${CATS.map(x => `<option ${x === e.cat ? 'selected' : ''}>${x}</option>`).join('')}</select></div>
+      </div>
+      <div class="row">
+        <div><label class="f">首次承諾完成日</label><input type="date" data-e="firstPromise" value="${esc(e.firstPromise)}" ${ro || (e.prevPromise ? 'disabled' : '')}></div>
+        <div><label class="f">前次承諾日</label><input type="date" value="${esc(e.prevPromise)}" disabled></div>
+        <div><label class="f">本次廠商承諾日</label><input type="date" data-e="promise" value="${esc(e.promise)}" ${ro}></div>
+      </div>
+      <div class="row">
+        <div><label class="f">本次狀態</label><select data-e="status" ${ro}>${STATUS.map(x => `<option ${x === e.status ? 'selected' : ''}>${x}</option>`).join('')}</select></div>
+        ${e.status === '已完成' ? `<div><label class="f">完成日期</label><input type="date" data-e="doneDate" value="${esc(e.doneDate || i.date)}" ${ro}></div>` : ''}
+      </div>
+      <label class="f">本次現場說明（廠商說法、延宕原因、要求事項）</label>
+      <textarea data-e="note" style="min-height:70px" ${ro}>${esc(e.note)}</textarea>
+      ${ro ? '' : `<div class="row" style="margin-top:8px">
+        <button class="btn" data-act="photo" style="flex:0 0 auto">📷 拍此事項照片</button>
+        <button class="btn" data-act="up" style="flex:0 0 auto">↑</button>
+        <button class="btn" data-act="down" style="flex:0 0 auto">↓</button>
+        <span></span>
+        <button class="btn red" data-act="rm" style="flex:0 0 auto">移出本次</button></div>`}
+    </div>`;
+  }).join('');
+  app.innerHTML = lockMsg + `
+    <datalist id="dlArea">${AREAS.map(a => `<option>${esc(a)}</option>`).join('')}</datalist>
+    <div class="muted" style="margin:0 4px 8px">「本次廠商承諾日」若比前次晚，系統自動記為延期一次。首次承諾日一經記錄不會被覆蓋。</div>
+    ${cards || '<div class="card muted">目前沒有追蹤事項，按下方新增。</div>'}
+    ${ro ? '' : `<div class="row"><button class="btn big pri" id="addE">＋ 新增事項</button><button class="btn big" id="pullE">帶入其他追蹤事項</button></div>`}`;
+  $$('.entry', app).forEach(card => {
+    const k = +card.dataset.k, e = i.entries[k];
+    $$('[data-e]', card).forEach(el => {
+      const ev = el.tagName === 'SELECT' || el.type === 'date' ? 'change' : 'input';
+      el.addEventListener(ev, () => {
+        const f = el.dataset.e; e[f] = el.value;
+        if (f === 'promise' && !e.prevPromise && !e.firstPromise) e.firstPromise = el.value;
+        if (f === 'status' && el.value === '已完成' && !e.doneDate) e.doneDate = i.date;
+        if (f === 'status' && el.value !== '已完成') e.doneDate = '';
+        if (f === 'status' && el.value !== e._lastStatus) addLog(`事項「${e.title}」狀態改為 ${el.value}`);
+        e._lastStatus = el.value;
+        scheduleSave();
+        if (ev === 'change') tabItems(app, lockMsg);
+      });
+    });
+    $$('[data-act]', card).forEach(b => b.onclick = async () => {
+      const a = b.dataset.act;
+      if (a === 'rm') {
+        if (!confirm(`將「${e.title || '（未命名）'}」移出本次會勘？\n（若是本次新增且無其他紀錄，將一併刪除）`)) return;
+        i.entries.splice(k, 1);
+        const it = await DB.get('items', e.itemId);
+        if (it) { if (it.history) delete it.history[i.id]; if (!it.history || !Object.keys(it.history).length) await DB.del('items', it.id); else await DB.put('items', it); }
+        addLog(`移出事項「${e.title}」`);
+      }
+      if (a === 'up' && k > 0) [i.entries[k - 1], i.entries[k]] = [i.entries[k], i.entries[k - 1]];
+      if (a === 'down' && k < i.entries.length - 1) [i.entries[k + 1], i.entries[k]] = [i.entries[k], i.entries[k + 1]];
+      if (a === 'photo') { pickPhotos(true, e.itemId); return; }
+      await saveNow(); tabItems(app, lockMsg);
+    });
+  });
+  const add = $('#addE');
+  if (add) add.onclick = async () => {
+    const it = { id: uid(), title: '', area: '', cat: '', status: '未開始', firstPromise: '', latestPromise: '', postpones: 0, createdDate: i.date, history: {}, no: Date.now() };
+    await DB.put('items', it); i.entries.push(entryFromItem(it)); addLog('新增事項');
+    await saveNow(); tabItems(app, lockMsg);
+    const last = $$('.entry', app).pop(); last.scrollIntoView({ behavior: 'smooth' }); $('[data-e=title]', last).focus();
+  };
+  const pull = $('#pullE');
+  if (pull) pull.onclick = async () => {
+    const have = new Set(i.entries.map(e => e.itemId));
+    const rest = (await DB.all('items')).filter(x => !have.has(x.id));
+    if (!rest.length) return toast('沒有其他可帶入的事項');
+    const M = $('#modal'); M.classList.add('on');
+    M.innerHTML = `<div class="sheet"><div class="inner"><h3>選擇要帶入的事項</h3>
+      ${rest.map(x => `<label class="card" style="display:flex;gap:10px;align-items:center"><input type="checkbox" value="${x.id}" style="width:24px;height:24px">
+      <div><b>${esc(x.title || '（未命名）')}</b><br><span class="muted">${esc(x.area)}｜${esc(x.status)}｜承諾 ${roc(x.latestPromise)}</span></div></label>`).join('')}
+      <div class="row"><button class="btn big" id="mc">取消</button><button class="btn big pri" id="mo">帶入</button></div></div></div>`;
+    $('#mc').onclick = closeModal;
+    $('#mo').onclick = async () => {
+      $$('input:checked', M).forEach(c => i.entries.push(entryFromItem(rest.find(x => x.id === c.value))));
+      closeModal(); await saveNow(); tabItems(app, lockMsg);
+    };
+  };
+}
+function closeModal() { const M = $('#modal'); M.classList.remove('on'); M.innerHTML = ''; }
+
+/* --- 照片 --- */
+function tabPhotos(app, lockMsg) {
+  const i = S.cur, ro = RO();
+  app.innerHTML = lockMsg + (ro ? '' : `
+    <div class="row" style="margin-bottom:12px">
+      <button class="btn big pri" id="cam">📷 拍照</button>
+      <button class="btn big" id="gal">🖼 從相簿選</button>
+    </div>
+    <div class="muted" style="margin:-4px 4px 10px">拍完會直接開啟標註（圈、框、線、箭頭、文字）。照片會自動壓上日期時間與位置，原始檔同時保留。</div>`) +
+    `<div class="grid">${S.photos.map((p, k) => `<div class="ph" data-id="${p.id}"><img src="${photoURL(p)}" loading="lazy"><div><b>${k + 1}.</b> ${esc(p.title || p.loc || '（未填說明）')}</div></div>`).join('')}</div>
+    ${S.photos.length ? '' : '<div class="card muted">尚無照片</div>'}`;
+  if (!ro) { $('#cam').onclick = () => pickPhotos(true); $('#gal').onclick = () => pickPhotos(false); }
+  $$('.ph', app).forEach(el => el.onclick = () => photoSheet(S.photos.find(p => p.id === el.dataset.id)));
+}
+function pickPhotos(camera, itemId = '') {
+  const inp = document.createElement('input'); inp.type = 'file'; inp.accept = 'image/*';
+  if (camera) inp.capture = 'environment'; else inp.multiple = true;
+  inp.onchange = async () => {
+    const files = [...inp.files]; if (!files.length) return;
+    toast(`處理 ${files.length} 張照片中…`);
+    const ent = S.cur.entries.find(e => e.itemId === itemId);
+    let last = null;
+    for (const f of files) {
+      const p = {
+        id: uid(), inspId: S.cur.id, orig: f, origName: f.name, origType: f.type, shapes: [],
+        takenAt: camera ? Date.now() : (f.lastModified || Date.now()), createdAt: Date.now(),
+        title: ent ? ent.title : '', desc: '', loc: ent ? ent.area : '', itemId, gps: null,
+      };
+      try { await renderPhoto(p); } catch (err) { alert('照片讀取失敗：' + f.name); continue; }
+      await DB.put('photos', p); S.photos.push(p); last = p; getGPS(p);
+    }
+    addLog(`新增照片 ${files.length} 張`); await saveNow();
+    if (camera && last) { await photoSheet(last); await annotate(last); }
+    else route();
+  };
+  inp.click();
+}
+function getGPS(p) {
+  if (!S.settings.gps || !navigator.geolocation) return;
+  navigator.geolocation.getCurrentPosition(async pos => {
+    p.gps = { lat: +pos.coords.latitude.toFixed(6), lng: +pos.coords.longitude.toFixed(6), acc: Math.round(pos.coords.accuracy) };
+    await DB.put('photos', p);
+  }, () => { }, { enableHighAccuracy: true, timeout: 20000, maximumAge: 120000 });
+}
+async function photoSheet(p) {
+  const ro = RO(), M = $('#modal'), i = S.cur; M.classList.add('on');
+  const k = S.photos.indexOf(p) + 1;
+  M.innerHTML = `<div class="sheet"><div class="inner">
+    <div class="row" style="margin-bottom:8px"><b style="flex:1">照片 ${k}</b><button class="btn" id="pClose" style="flex:0 0 auto">✕ 關閉</button></div>
+    <img src="${photoURL(p)}" style="width:100%;border-radius:10px;background:#000" id="pImg">
+    ${ro ? '' : '<button class="btn big pri" id="pAnno" style="margin-top:8px">✏️ 標註（圈 / 框 / 線 / 箭頭 / 文字）</button>'}
+    <div class="card" style="margin-top:10px">
+      <label class="f">施作項目 / 缺失內容</label><input data-p="title" value="${esc(p.title)}" ${ro}>
+      <label class="f">說明</label><textarea data-p="desc" style="min-height:70px" ${ro}>${esc(p.desc)}</textarea>
+      <div class="row">
+        <div><label class="f">拍攝位置</label><input data-p="loc" value="${esc(p.loc)}" list="dlArea2" ${ro}></div>
+        <div><label class="f">關聯事項</label><select data-p="itemId" ${ro}><option value="">（無）</option>${i.entries.map((e, n) => `<option value="${e.itemId}" ${e.itemId === p.itemId ? 'selected' : ''}>${n + 1}. ${esc(e.title)}</option>`).join('')}</select></div>
+      </div>
+      <datalist id="dlArea2">${AREAS.map(a => `<option>${esc(a)}</option>`).join('')}</datalist>
+      <div class="muted" style="margin-top:8px">拍攝時間：${fmtDT(p.takenAt)}｜原始檔：${esc(p.origName || '')}${p.gps ? `<br>GPS：${p.gps.lat}, ${p.gps.lng}（±${p.gps.acc}m）` : ''}</div>
+    </div>
+    ${ro ? '' : `<div class="row"><button class="btn" id="pUp">← 往前</button><button class="btn" id="pDn">往後 →</button><button class="btn red" id="pDel">刪除照片</button></div>`}
+    <button class="btn big pri" id="pDone" style="margin-top:10px">完成</button>
+  </div></div>`;
+  let dirtyStamp = false;
+  $$('[data-p]', M).forEach(el => el.addEventListener(el.tagName === 'SELECT' ? 'change' : 'input', async () => {
+    p[el.dataset.p] = el.value; if (el.dataset.p === 'loc') dirtyStamp = true;
+    await DB.put('photos', p); markSaved('已儲存 ✓');
+  }));
+  const done = async () => {
+    if (dirtyStamp) { await renderPhoto(p); await DB.put('photos', p); }
+    closeModal(); route();
+  };
+  $('#pClose').onclick = done; $('#pDone').onclick = done;
+  if (!ro) {
+    $('#pAnno').onclick = async () => { if (dirtyStamp) { await renderPhoto(p); dirtyStamp = false; } await annotate(p); };
+    $('#pDel').onclick = async () => {
+      if (!confirm('確定刪除此照片？')) return;
+      await DB.del('photos', p.id); S.photos.splice(S.photos.indexOf(p), 1); addLog(`刪除照片「${p.title || p.origName || ''}」`); await saveNow(); closeModal(); route();
+    };
+    const mv = async d => {
+      const n = S.photos.indexOf(p), m = n + d; if (m < 0 || m >= S.photos.length) return;
+      const q = S.photos[m]; [p.createdAt, q.createdAt] = [q.createdAt, p.createdAt];
+      await DB.put('photos', p); await DB.put('photos', q);
+      S.photos.sort((a, b) => a.createdAt - b.createdAt); photoSheet(p);
+    };
+    $('#pUp').onclick = () => mv(-1); $('#pDn').onclick = () => mv(1);
+  }
+}
+
+/* --- 標註器 --- */
+function annotate(p) {
+  return new Promise(async resolve => {
+    const bmp = await loadBitmap(p.orig); const { w, h } = fit(bmp.width, bmp.height, MAXPX);
+    const shapes = JSON.parse(JSON.stringify(p.shapes || []));
+    const TOOLS = [['circle', '◯ 圈'], ['rect', '▢ 框'], ['arrow', '➜ 箭頭'], ['line', '╱ 線'], ['free', '✎ 手繪'], ['text', 'A 文字']];
+    const COLORS = ['#ff1a1a', '#ffde00', '#00d26a', '#1e90ff', '#ffffff'];
+    let tool = 'circle', color = COLORS[0], lw = 2, cur = null;
+    const M = $('#modal'); M.classList.add('on');
+    M.innerHTML = `<div class="anno">
+      <div class="atools">${TOOLS.map(([t, l]) => `<button data-t="${t}" class="${t === tool ? 'on' : ''}">${l}</button>`).join('')}</div>
+      <div class="astage"><canvas></canvas></div>
+      <div class="abar">
+        ${COLORS.map(c => `<button class="clr ${c === color ? 'on' : ''}" data-c="${c}" style="background:${c}"></button>`).join('')}
+        <span class="sep"></span>
+        ${[1, 2, 3].map(v => `<button data-w="${v}" class="${v === lw ? 'on' : ''}">${['細', '中', '粗'][v - 1]}</button>`).join('')}
+        <span class="sep"></span>
+        <button data-a="undo">↶ 復原</button><button data-a="clear">清除</button>
+        <button data-a="cancel">取消</button><button data-a="save" style="background:#1f8a4c;border-color:#1f8a4c">✓ 完成</button>
+      </div></div>`;
+    const cv = $('canvas', M); cv.width = w; cv.height = h; const x = cv.getContext('2d');
+    const u = Math.max(w, h) / 400;
+    const redraw = () => { x.drawImage(bmp, 0, 0, w, h); shapes.forEach(s => drawShape(x, s, u)); if (cur) drawShape(x, cur, u); };
+    redraw();
+    const pt = e => { const r = cv.getBoundingClientRect(); return [(e.clientX - r.left) * w / r.width, (e.clientY - r.top) * h / r.height]; };
+    cv.onpointerdown = e => {
+      e.preventDefault(); const q = pt(e);
+      if (tool === 'text') { const t = prompt('輸入標註文字'); if (t) { shapes.push({ t: 'text', c: color, w: lw, p: [q], text: t }); redraw(); } return; }
+      cv.setPointerCapture(e.pointerId); cur = { t: tool, c: color, w: lw, p: [q, q] };
+    };
+    cv.onpointermove = e => { if (!cur) return; const q = pt(e); if (cur.t === 'free') cur.p.push(q); else cur.p[1] = q; redraw(); };
+    cv.onpointerup = cv.onpointercancel = () => {
+      if (!cur) return; const a = cur.p[0], b = cur.p[cur.p.length - 1];
+      if (cur.t === 'free' ? cur.p.length > 2 : Math.hypot(b[0] - a[0], b[1] - a[1]) > u * 3) shapes.push(cur);
+      cur = null; redraw();
+    };
+    M.onclick = async e => {
+      const b = e.target.closest('button'); if (!b) return;
+      if (b.dataset.t) { tool = b.dataset.t; $$('[data-t]', M).forEach(z => z.classList.toggle('on', z === b)); }
+      if (b.dataset.c) { color = b.dataset.c; $$('[data-c]', M).forEach(z => z.classList.toggle('on', z === b)); }
+      if (b.dataset.w) { lw = +b.dataset.w; $$('[data-w]', M).forEach(z => z.classList.toggle('on', z === b)); }
+      const a = b.dataset.a;
+      if (a === 'undo') { shapes.pop(); redraw(); }
+      if (a === 'clear' && shapes.length && confirm('清除所有標註？')) { shapes.length = 0; redraw(); }
+      if (a === 'cancel') { M.onclick = null; await photoSheet(p); resolve(false); }
+      if (a === 'save') {
+        b.disabled = true; p.shapes = shapes; await renderPhoto(p); await DB.put('photos', p);
+        addLog(`標註照片「${p.title || p.origName || ''}」`); await saveNow();
+        M.onclick = null; await photoSheet(p); resolve(true);
+      }
+    };
+  });
+}
+
+/* --- 簽名 --- */
+function tabSign(app, lockMsg) {
+  const i = S.cur, ro = RO();
+  const signed = i.signs.filter(s => s.img).length;
+  app.innerHTML = lockMsg + `
+    <div class="card"><b>簽認聲明</b><div class="muted">本次會勘（${roc(i.date)}，事項 ${i.entries.length} 項、照片 ${S.photos.length} 張）內容業經各方現場會同確認。簽名前請先至「報表」頁讓各方檢視內容。</div></div>
+    <div class="sig">${i.signs.map((s, k) => `<div class="sigbox" data-k="${k}">
+      <b>${esc(s.role)}</b>
+      <label class="f">姓名</label><input data-s="name" value="${esc(s.name)}" ${ro || (s.img ? 'disabled' : '')}>
+      <div class="img">${s.img ? `<img src="${s.img}">` : s.absent ? `<span style="color:var(--red);font-weight:700">${esc(s.absent)}</span>` : '<span class="muted">尚未簽名</span>'}</div>
+      <div class="muted">${s.at ? '簽署時間：' + fmtDT(s.at) : ''}</div>
+      ${ro ? '' : `<div class="row" style="margin-top:6px">
+        ${s.img || s.absent ? '<button class="btn red" data-a="clr">清除重簽</button>' : '<button class="btn pri" data-a="sign">✍️ 簽名</button><button class="btn" data-a="absent">未到場/拒簽</button>'}
+      </div>`}
+    </div>`).join('')}</div>
+    ${ro ? `<button class="btn big red" id="unlock" style="margin-top:14px">解除鎖定（將清除所有簽名，需重簽）</button>` :
+      `<button class="btn big grn" id="lock" style="margin-top:14px" ${signed ? '' : 'disabled'}>🔒 定稿鎖定（產生防竄改碼）</button>
+       <div class="muted" style="margin:6px 4px">建議所有人簽完立即定稿。定稿後內容與照片不可修改，報表會印出 SHA-256 防竄改碼。</div>`}`;
+  $$('.sigbox', app).forEach(box => {
+    const s = i.signs[+box.dataset.k];
+    const n = $('[data-s=name]', box); n.oninput = () => { s.name = n.value; scheduleSave(); };
+    $$('[data-a]', box).forEach(b => b.onclick = async () => {
+      const a = b.dataset.a;
+      if (a === 'sign') {
+        if (!s.name.trim()) { alert('請先填寫姓名'); n.focus(); return; }
+        const img = await signPad(`${s.role}　${s.name}`); if (!img) return;
+        s.img = img; s.at = Date.now(); s.absent = null; addLog(`${s.role} ${s.name} 簽名`);
+      }
+      if (a === 'absent') {
+        const r = prompt('請輸入狀況（例：未到場、到場但拒絕簽名、拒簽原因…）', '到場但拒絕簽名'); if (!r) return;
+        s.absent = r; s.at = Date.now(); s.img = null; addLog(`${s.role} ${s.name}：${r}`);
+      }
+      if (a === 'clr') { if (!confirm('清除此簽名？')) return; addLog(`清除 ${s.role} ${s.name} 簽名`); s.img = null; s.at = null; s.absent = null; }
+      await saveNow(); tabSign(app, lockMsg);
+    });
+  });
+  const L = $('#lock');
+  if (L) L.onclick = async () => {
+    const miss = i.signs.filter(s => !s.img && !s.absent);
+    if (miss.length && !confirm(`尚有 ${miss.length} 位未簽名也未註記：\n${miss.map(s => s.role).join('\n')}\n\n仍要定稿？`)) return;
+    if (!confirm('定稿後將不可修改。確定定稿？')) return;
+    if (saveTimer) await saveNow();
+    const hash = await computeHash(i);
+    i.locked = { at: Date.now(), hash: hash.all, photos: hash.photos };
+    addLog('定稿鎖定 SHA-256 ' + hash.all.slice(0, 16)); await saveNow();
+    toast('已定稿鎖定'); location.hash = '#/insp/' + i.id + '/report';
+  };
+  const U = $('#unlock');
+  if (U) U.onclick = async () => {
+    const r = prompt('解除鎖定會清除所有簽名並留下紀錄。\n請輸入解除原因：'); if (!r) return;
+    addLog(`解除鎖定（原因：${r}；原防竄改碼 ${i.locked.hash.slice(0, 16)}）`);
+    i.locked = null; i.signs.forEach(s => { s.img = null; s.at = null; s.absent = null; });
+    await saveNow(); route();
+  };
+}
+async function computeHash(i) {
+  const photos = {};
+  for (const p of S.photos) photos[p.id] = { orig: await sha(await p.orig.arrayBuffer()), annot: await sha(await p.annot.arrayBuffer()) };
+  const body = { insp: { ...i, locked: null, log: null }, photos: S.photos.map(p => ({ id: p.id, title: p.title, desc: p.desc, loc: p.loc, itemId: p.itemId, takenAt: p.takenAt, gps: p.gps, h: photos[p.id] })) };
+  return { all: await sha(new TextEncoder().encode(JSON.stringify(body))), photos };
+}
+function signPad(title) {
+  return new Promise(resolve => {
+    const M = $('#modal'); M.classList.add('on');
+    M.innerHTML = `<div class="sigpad">
+      <div style="text-align:center;font-weight:700;margin-bottom:6px">${esc(title)}　請於框內簽名<br><span class="muted">手機可橫放以獲得較大簽名區</span></div>
+      <canvas></canvas>
+      <div class="row" style="margin-top:8px"><button class="btn" id="sgC">取消</button><button class="btn" id="sgR">清除</button><button class="btn pri" id="sgO">確認簽名</button></div></div>`;
+    const cv = $('canvas', M); let x, drew = false, last = null;
+    const setup = () => {
+      const r = cv.getBoundingClientRect(), dpr = Math.min(2, window.devicePixelRatio || 1);
+      cv.width = r.width * dpr; cv.height = r.height * dpr; x = cv.getContext('2d'); x.scale(dpr, dpr);
+      x.lineWidth = 2.8; x.lineCap = x.lineJoin = 'round'; x.strokeStyle = '#0a1a5c'; drew = false;
+    };
+    setTimeout(setup, 30); window.addEventListener('resize', setup);
+    const pt = e => { const r = cv.getBoundingClientRect(); return [e.clientX - r.left, e.clientY - r.top]; };
+    cv.onpointerdown = e => { e.preventDefault(); cv.setPointerCapture(e.pointerId); last = pt(e); x.beginPath(); x.arc(last[0], last[1], 1.2, 0, 7); x.fillStyle = x.strokeStyle; x.fill(); drew = true; };
+    cv.onpointermove = e => { if (!last) return; const q = pt(e); x.beginPath(); x.moveTo(last[0], last[1]); x.lineTo(q[0], q[1]); x.stroke(); last = q; };
+    cv.onpointerup = cv.onpointercancel = () => { last = null; };
+    const end = v => { window.removeEventListener('resize', setup); closeModal(); resolve(v); };
+    $('#sgC').onclick = () => end(null);
+    $('#sgR').onclick = () => { x.clearRect(0, 0, cv.width, cv.height); drew = false; };
+    $('#sgO').onclick = () => { if (!drew) return alert('尚未簽名'); end(trimCanvas(cv)); };
+  });
+}
+function trimCanvas(cv) {
+  const x = cv.getContext('2d'), { width: w, height: h } = cv, d = x.getImageData(0, 0, w, h).data;
+  let t = h, l = w, r = 0, b = 0;
+  for (let y = 0; y < h; y++) for (let z = 0; z < w; z++) if (d[(y * w + z) * 4 + 3]) { if (y < t) t = y; if (y > b) b = y; if (z < l) l = z; if (z > r) r = z; }
+  const m = 10; t = Math.max(0, t - m); l = Math.max(0, l - m); r = Math.min(w, r + m); b = Math.min(h, b + m);
+  const c = document.createElement('canvas'); c.width = r - l; c.height = b - t;
+  c.getContext('2d').drawImage(cv, l, t, r - l, b - t, 0, 0, r - l, b - t);
+  return c.toDataURL('image/png');
+}
+
+/* --- 報表 --- */
+function reportHTML(i, photos) {
+  const st = S.settings;
+  const notes = (i.notes || '').split('\n').map(s => s.trim()).filter(Boolean).map(s => s.replace(/^\s*\d+\s*[.、．)]\s*/, ''));
+  const rows = i.entries.map((e, k) => {
+    const c = entryCalc(e, i.date);
+    return `<tr><td style="text-align:center">${k + 1}</td><td>${esc(e.area)}</td><td>${esc(e.title)}${e.cat ? `<br><span class="small">［${esc(e.cat)}］</span>` : ''}</td>
+      <td>${roc(c.first)}</td><td>${roc(e.prevPromise)}</td><td class="${c.postponedNow ? 'red' : ''}">${roc(e.promise)}</td>
+      <td style="text-align:center" class="${c.postpones ? 'red' : ''}">${c.postpones || '-'}</td>
+      <td class="${c.overdue ? 'red' : ''}">${esc(e.status)}${c.overdue ? `<br>逾期${days(e.promise, i.date)}天` : ''}${e.status === '已完成' && e.doneDate ? `<br>${roc(e.doneDate)}` : ''}</td>
+      <td style="text-align:center" class="${c.delay ? 'red' : ''}">${c.delay || '-'}</td>
+      <td>${esc(e.note).replace(/\n/g, '<br>')}</td></tr>`;
+  }).join('');
+  const titleOf = id => { const n = i.entries.findIndex(e => e.itemId === id); return n < 0 ? '' : `${n + 1}. ${i.entries[n].title}`; };
+  const phs = photos.map((p, k) => `<div class="phc"><img src="${photoURL(p)}">
+    <div class="cap"><b>照片${k + 1}</b>${esc(p.title)}<br>
+    ${p.desc ? `<b>說明：</b>${esc(p.desc)}<br>` : ''}
+    ${p.itemId ? `<b>關聯事項：</b>${esc(titleOf(p.itemId))}<br>` : ''}
+    <b>拍攝時間：</b>${rocDT(p.takenAt)}<br><b>拍攝位置：</b>${esc(p.loc)}${p.gps ? `<span class="small">（GPS ${p.gps.lat},${p.gps.lng}）</span>` : ''}
+    ${i.locked && i.locked.photos && i.locked.photos[p.id] ? `<br><span class="small">原檔SHA-256：${i.locked.photos[p.id].orig.slice(0, 24)}…</span>` : ''}</div></div>`).join('');
+  const sigs = i.signs.map(s => `<div><div class="role">${esc(s.role)}</div>
+    ${s.img ? `<img src="${s.img}">` : s.absent ? `<div class="red" style="padding:6mm 0;text-align:center">${esc(s.absent)}</div>` : '<div style="height:20mm"></div>'}
+    <div>姓名：${esc(s.name)}</div><div class="small">${s.at ? '時間：' + rocDT(s.at) : ''}</div></div>`).join('');
+  return `<div class="rpt">
+    <h1>${esc(st.project)}</h1>
+    <div class="sub" style="font-size:17px;font-weight:700">機電工程　定期會勘紀錄（第 ${esc(i.seq)} 次）</div>
+    <table class="kv">
+      <tr><th>工程名稱</th><td colspan="3">${esc(st.project)}</td></tr>
+      <tr><th>會勘日期</th><td>${roc(i.date)}（星期${wk(i.date)}）</td><th>會勘時間</th><td>${esc(i.timeStart)}${i.timeEnd ? ' ～ ' + esc(i.timeEnd) : ''}</td></tr>
+      <tr><th>會勘地點</th><td>${esc(i.place)}</td><th>天氣</th><td>${esc(i.weather)}</td></tr>
+      <tr><th>營造廠</th><td>${esc(st.gc)}</td><th>機電廠商</th><td>${esc(st.vendor)}</td></tr>
+      <tr><th>出席人員</th><td colspan="3">${esc(i.attendees).replace(/\n/g, '<br>')}</td></tr>
+    </table>
+    <h2>一、會勘說明及結論</h2>
+    ${notes.length ? `<ol>${notes.map(n => `<li>${esc(n)}</li>`).join('')}</ol>` : '<div>（無）</div>'}
+    <h2>二、事項追蹤（廠商承諾完成日管制）</h2>
+    <table class="small"><tr><th>項次</th><th>區域</th><th>事項內容</th><th>首次<br>承諾日</th><th>前次<br>承諾日</th><th>本次<br>承諾日</th><th>延期<br>次數</th><th>狀態</th><th>延宕<br>天數</th><th>現場說明</th></tr>
+    ${rows || '<tr><td colspan="10">（無）</td></tr>'}</table>
+    <div class="small">註：延宕天數＝以首次承諾完成日起算至本次會勘日（已完成者算至完成日）。紅字為本次再延期或已逾承諾日。</div>
+    <h2>三、現場照片</h2>
+    ${phs ? `<div class="phgrid">${phs}</div>` : '<div>（無）</div>'}
+    <div class="avoid"><h2>四、會同人員簽認</h2>
+    <div class="small" style="margin-bottom:4px">以上會勘內容業經各方於現場會同確認。</div>
+    <div class="sigs">${sigs}</div></div>
+    <div class="foot">紀錄編號：${esc(i.id)}｜建立：${fmtDT(i.createdAt)}｜${i.locked ? `定稿：${fmtDT(i.locked.at)}｜防竄改碼 SHA-256：${esc(i.locked.hash)}` : '<b>草稿（尚未定稿）</b>'}｜列印：${fmtDT(Date.now())}</div>
+  </div>`;
+}
+function tabReport(app, lockMsg) {
+  const i = S.cur;
+  app.innerHTML = lockMsg + `
+    ${i.locked ? '' : '<div class="warn">此紀錄尚未定稿，報表會標示「草稿」。</div>'}
+    <div class="row" style="margin-bottom:12px">
+      <button class="btn big pri" id="pr">🖨 列印 / 存成 PDF</button>
+    </div>
+    <div class="muted" style="margin:-4px 4px 10px">Android：按列印→印表機選「另存為 PDF」。iPhone：列印畫面兩指放大預覽→分享→儲存到「檔案」。檔名建議：${rocC(i.date)}_赤崁樓機電會勘紀錄.pdf</div>
+    <div class="rptwrap">${reportHTML(i, S.photos)}</div>`;
+  $('#pr').onclick = () => doPrint(reportHTML(i, S.photos), `${rocC(i.date)}_赤崁樓機電會勘紀錄_第${i.seq}次${i.locked ? '' : '_草稿'}`);
+}
+async function doPrint(html, title) {
+  const P = $('#print'); P.innerHTML = html;
+  await Promise.all($$('img', P).map(im => im.complete ? 0 : new Promise(r => { im.onload = im.onerror = r; })));
+  const old = document.title; document.title = title;
+  const done = () => { document.title = old; P.innerHTML = ''; window.removeEventListener('afterprint', done); };
+  window.addEventListener('afterprint', done);
+  setTimeout(() => window.print(), 50);
+}
+
+/* ========== 延宕追蹤總表 ========== */
+async function viewItems() {
+  S.cur = null; setHeader('延宕追蹤總表', null); mainTabs('items'); markSaved('');
+  const [items, insps] = await Promise.all([DB.all('items'), DB.all('insp')]);
+  const im = Object.fromEntries(insps.map(x => [x.id, x]));
+  items.sort((a, b) => (CLOSED.includes(a.status) - CLOSED.includes(b.status)) || (b.postpones || 0) - (a.postpones || 0) || (a.firstPromise || '9').localeCompare(b.firstPromise || '9'));
+  const tableHTML = forPrint => `<table class="${forPrint ? 'small' : 'tb'}"><tr><th>#</th><th>事項</th><th>區域</th><th>首次承諾</th><th>最新承諾</th><th>延期次數</th><th>延宕天數</th><th>狀態</th><th>歷次會勘紀錄</th></tr>
+    ${items.map((it, k) => {
+      const c = itemCalc(it);
+      const hist = Object.entries(it.history || {}).sort((a, b) => a[1].date.localeCompare(b[1].date))
+        .map(([iid, h]) => `${roc(h.date)} 第${esc(h.seq ?? (im[iid] || {}).seq ?? '')}次：${esc(h.status)}${h.promise ? '，承諾 ' + roc(h.promise) : ''}${h.postponed ? '（再延）' : ''}${h.note ? '－' + esc(h.note) : ''}`).join('<br>');
+      const red = forPrint ? 'class="red"' : 'style="color:var(--red);font-weight:700"';
+      return `<tr><td>${k + 1}</td><td>${esc(it.title)}</td><td>${esc(it.area)}</td><td>${roc(it.firstPromise)}</td>
+        <td ${c.overdue ? red : ''}>${roc(it.latestPromise)}</td><td ${it.postpones ? red : ''} style="text-align:center">${it.postpones || 0}</td>
+        <td ${c.delay ? red : ''} style="text-align:center">${c.delay || 0}</td><td>${esc(it.status)}${it.doneDate ? '<br>' + roc(it.doneDate) : ''}</td><td class="small" style="font-size:12px">${hist}</td></tr>`;
+    }).join('')}</table>`;
+  const open = items.filter(i => !CLOSED.includes(i.status));
+  $('#app').innerHTML = `
+    <div class="card"><b>統計至 ${roc(today())}</b><div class="muted">共 ${items.length} 項；未完成 ${open.length} 項；已逾承諾日 ${open.filter(x => itemCalc(x).overdue).length} 項；累計延期 ${items.reduce((s, x) => s + (x.postpones || 0), 0)} 次。<br>延宕天數＝首次承諾日至今日（已完成者至完成日）。事項內容請在各次會勘紀錄中修改。</div>
+    <button class="btn pri" id="prI" style="margin-top:8px">🖨 列印延宕追蹤總表</button></div>
+    <div class="scrollx">${tableHTML(false)}</div>`;
+  $('#prI').onclick = () => doPrint(`<div class="rpt"><h1>${esc(S.settings.project)}</h1><div class="sub" style="font-size:16px;font-weight:700">機電工程（${esc(S.settings.vendor)}）承諾事項延宕追蹤總表</div>
+    <div class="sub">統計日期：${roc(today())}｜共 ${items.length} 項，未完成 ${open.length} 項，累計延期 ${items.reduce((s, x) => s + (x.postpones || 0), 0)} 次</div>${tableHTML(true)}
+    <div class="small">註：延宕天數＝首次承諾完成日起算至統計日（已完成者算至完成日）。資料來源為各次定期會勘紀錄（含各方簽認）。</div>
+    <div class="foot">列印：${fmtDT(Date.now())}</div></div>`, `${rocC(today())}_可曜機電延宕追蹤總表`);
+}
+
+/* ========== 設定 / 備份 ========== */
+async function viewSettings() {
+  S.cur = null; setHeader('設定 / 備份', null); mainTabs('settings'); markSaved('');
+  const st = S.settings;
+  let est = ''; try { const e = await navigator.storage.estimate(); est = `已使用 ${(e.usage / 1048576).toFixed(1)} MB／可用約 ${(e.quota / 1073741824).toFixed(1)} GB`; } catch (e) { }
+  let persisted = false; try { persisted = await navigator.storage.persisted(); } catch (e) { }
+  $('#app').innerHTML = `
+  <div class="card"><h3>工程資料</h3>
+    <label class="f">工程名稱</label><input data-s="project" value="${esc(st.project)}">
+    <div class="row"><div><label class="f">營造廠</label><input data-s="gc" value="${esc(st.gc)}"></div>
+    <div><label class="f">機電廠商</label><input data-s="vendor" value="${esc(st.vendor)}"></div></div>
+    <label class="f">預設會勘地點</label><input data-s="place" value="${esc(st.place)}">
+  </div>
+  <div class="card"><h3>簽名欄位（新建紀錄時套用）</h3>
+    ${st.signers.map((s, k) => `<div class="row"><div><label class="f">職稱 ${k + 1}</label><input data-g="${k}" data-k="role" value="${esc(s.role)}"></div><div><label class="f">預設姓名</label><input data-g="${k}" data-k="name" value="${esc(s.name)}"></div></div>`).join('')}
+  </div>
+  <div class="card"><h3>照片</h3>
+    <label style="display:flex;gap:8px;align-items:center;margin:6px 0"><input type="checkbox" id="stStamp" ${st.stamp ? 'checked' : ''} style="width:22px;height:22px"> 照片壓上日期時間與位置浮水印</label>
+    <label style="display:flex;gap:8px;align-items:center;margin:6px 0"><input type="checkbox" id="stGps" ${st.gps ? 'checked' : ''} style="width:22px;height:22px"> 記錄 GPS 座標（不需網路，地下室可能抓不到）</label>
+  </div>
+  <div class="card"><h3>備份（重要）</h3>
+    <div class="muted">所有資料只存在這支手機的瀏覽器內，換手機、清除瀏覽資料或刪除 App 都會遺失。請定期匯出備份檔，存到電腦或雲端。<br>${est}｜${persisted ? '✅ 已啟用永久儲存' : '⚠️ 尚未取得永久儲存權限'}<br>上次備份：${st.lastBackup ? fmtDT(st.lastBackup) : '從未'}</div>
+    <div class="row" style="margin-top:10px"><button class="btn pri" id="bkOut">⬇ 匯出完整備份</button><button class="btn" id="bkIn">⬆ 匯入備份</button></div>
+  </div>
+  <div class="card"><h3>補登紙本紀錄</h3>
+    <div class="muted">將 115/08/20 手寫會勘紀錄的 8 項事項及承諾日建為「紙本補登」紀錄，作為延宕追蹤的起點。<b>日期為辨識手寫字，匯入後請逐項核對。</b></div>
+    <button class="btn" id="seed820" style="margin-top:8px">匯入 115/08/20 手寫事項</button>
+  </div>
+  <div class="muted" style="text-align:center">版本 1.0｜離線可用</div>`;
+  const save = async () => { await DB.put('kv', st); markSaved('已儲存 ✓'); };
+  $$('[data-s]').forEach(el => el.oninput = () => { st[el.dataset.s] = el.value; save(); });
+  $$('[data-g]').forEach(el => el.oninput = () => { st.signers[+el.dataset.g][el.dataset.k] = el.value; save(); });
+  $('#stStamp').onchange = e => { st.stamp = e.target.checked; save(); };
+  $('#stGps').onchange = e => { st.gps = e.target.checked; save(); if (st.gps) navigator.geolocation?.getCurrentPosition(() => { }, () => { }); };
+  $('#bkOut').onclick = exportBackup;
+  $('#bkIn').onclick = importBackup;
+  $('#seed820').onclick = seed820;
+}
+async function exportBackup() {
+  toast('打包中…');
+  const [insp, items, photos] = await Promise.all([DB.all('insp'), DB.all('items'), DB.all('photos')]);
+  const ph = [];
+  for (const p of photos) ph.push({ ...p, orig: await blobToDataURL(p.orig), annot: p.annot ? await blobToDataURL(p.annot) : null });
+  const data = { app: 'mep-inspect', version: 1, exportedAt: Date.now(), settings: S.settings, insp, items, photos: ph };
+  const name = `機電會勘備份_${rocC(today())}_${hm(Date.now()).replace(':', '')}.json`;
+  const file = new File([JSON.stringify(data)], name, { type: 'application/json' });
+  S.settings.lastBackup = Date.now(); await DB.put('kv', S.settings);
+  if (navigator.canShare && navigator.canShare({ files: [file] }) && confirm('要用「分享」傳到雲端硬碟 / LINE / Email 嗎？\n（按取消改為直接下載到手機）')) {
+    try { await navigator.share({ files: [file], title: name }); toast('已分享'); return viewSettings(); } catch (e) { }
+  }
+  const a = document.createElement('a'); a.href = URL.createObjectURL(file); a.download = name; a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 60000);
+  toast(`已下載 ${name}（${(file.size / 1048576).toFixed(1)} MB）`, 4000); viewSettings();
+}
+function importBackup() {
+  const inp = document.createElement('input'); inp.type = 'file'; inp.accept = '.json,application/json';
+  inp.onchange = async () => {
+    const f = inp.files[0]; if (!f) return;
+    let d; try { d = JSON.parse(await f.text()); } catch (e) { return alert('檔案格式錯誤'); }
+    if (d.app !== 'mep-inspect') return alert('不是本 App 的備份檔');
+    if (!confirm(`備份時間 ${fmtDT(d.exportedAt)}\n會勘 ${d.insp.length} 筆、事項 ${d.items.length} 項、照片 ${d.photos.length} 張\n\n匯入後相同編號的資料會被覆蓋，其餘保留。確定匯入？`)) return;
+    toast('匯入中…');
+    for (const x of d.insp) await DB.put('insp', x);
+    for (const x of d.items) await DB.put('items', x);
+    for (const p of d.photos) { p.orig = await dataURLToBlob(p.orig); p.annot = p.annot ? await dataURLToBlob(p.annot) : null; await DB.put('photos', p); }
+    if (d.settings && confirm('是否一併套用備份中的設定（工程名稱、簽名欄位）？')) { S.settings = { ...d.settings, key: 'settings' }; await DB.put('kv', S.settings); }
+    toast('匯入完成'); location.hash = '#/';
+  };
+  inp.click();
+}
+async function seed820() {
+  const all = await DB.all('insp');
+  if (all.some(x => x.paper === '1150820')) return alert('已匯入過');
+  if (!confirm('建立 115/08/20 紙本補登紀錄？')) return;
+  const L = [
+    ['弱電箱到貨定位', '弱電', '2026-08-24', ''],
+    ['水繩拉設（全部；動力、弱電皆佈水繩）', '弱電', '2026-08-26', ''],
+    ['電線消防銜接1期', '消防', '2026-08-27', ''],
+    ['2組廢水泵、1組污水泵配一次側電源配管、二次側配管', '給排水', '2026-09-08', ''],
+    ['電燈（梯間、儲藏室）進貨', '材料進場', '2026-08-26', '梯間、儲藏室'],
+    ['動力管銜接線槽', '電氣', '2026-08-31', ''],
+    ['燈線槽進料', '材料進場', '2026-08-24', ''],
+    ['燈線槽施作', '電氣', '2026-09-11', ''],
+    ['幹線1期階段用線槽、昇位配管、加轉接箱；200平方接地線（需與設計、電機技師確認）', '電氣', '', ''],
+    ['建築B2輕隔間牆監視器', '建築配合', '', 'B2F'],
+  ];
+  const insp = {
+    id: uid(), date: '2026-08-20', seq: 1, timeStart: '', timeEnd: '', place: S.settings.place, weather: '', paper: '1150820',
+    attendees: '升富營造 鄭博凱、可曜企業有限公司 代表', notes: '本紀錄依 115/08/20 紙本手寫會勘紀錄補登（原件掃描檔：1150820_機電會勘事宜.pdf），雙方已於紙本簽名。', entries: [],
+    signs: S.settings.signers.map(s => ({ role: s.role, org: s.org, name: s.name, img: null, at: null, absent: null })),
+    log: [{ t: Date.now(), a: '依紙本紀錄補登' }], locked: null, createdAt: Date.now(),
+  };
+  let n = 0;
+  for (const [title, cat, promise, area] of L) {
+    const it = { id: uid(), title, cat, area, status: '未開始', firstPromise: promise, latestPromise: '', postpones: 0, createdDate: insp.date, history: {}, no: ++n };
+    await DB.put('items', it);
+    const e = entryFromItem(it); e.promise = promise; e.prevPromise = ''; e.status = '待確認'; insp.entries.push(e);
+  }
+  insp.signs.forEach(s => { if (!s.name) s.absent = '詳紙本簽名'; });
+  for (const x of all) if (x.seq >= 1) { x.seq = +x.seq + 1; await DB.put('insp', x); }
+  await DB.put('insp', insp); await syncItems(insp);
+  toast('已建立，請逐項核對日期'); location.hash = '#/insp/' + insp.id + '/items';
+}
+
+/* ========== 啟動 ========== */
+async function route() {
+  const p = location.hash.replace(/^#\/?/, '').split('/');
+  try {
+    if (p[0] === 'insp' && p[1]) return await viewInsp(p[1], p[2] || 'basic');
+    if (saveTimer) await saveNow();
+    if (p[0] === 'items') return await viewItems();
+    if (p[0] === 'settings') return await viewSettings();
+    return await viewHome();
+  } catch (e) { console.error(e); $('#app').innerHTML = `<div class="warn">發生錯誤：${esc(e.message)}</div>`; }
+}
+function netState() { const n = $('#net'); n.textContent = navigator.onLine ? '在線' : '離線'; n.classList.toggle('off', !navigator.onLine); }
+(async () => {
+  await DB.open();
+  S.settings = Object.assign({}, DEFAULT_SETTINGS, await DB.get('kv', 'settings'));
+  await DB.put('kv', S.settings);
+  try { if (navigator.storage && navigator.storage.persist) await navigator.storage.persist(); } catch (e) { }
+  window.addEventListener('hashchange', route);
+  window.addEventListener('online', netState); window.addEventListener('offline', netState); netState();
+  document.addEventListener('visibilitychange', () => { if (document.hidden && saveTimer) saveNow(); });
+  window.addEventListener('pagehide', () => { if (saveTimer) saveNow(); });
+  route();
+  if ('serviceWorker' in navigator && location.protocol !== 'file:') navigator.serviceWorker.register('sw.js').catch(() => { });
+})();
+</script>
+</body>
+</html>
