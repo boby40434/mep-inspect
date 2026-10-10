@@ -83,7 +83,10 @@ table.tb th{background:#eef2f7}
 .sheet{position:absolute;left:0;right:0;bottom:0;top:0;background:var(--bg);overflow:auto;padding:calc(env(safe-area-inset-top) + 10px) 12px calc(env(safe-area-inset-bottom) + 20px)}
 .sheet .inner{max-width:860px;margin:0 auto}
 .sigpad{position:absolute;inset:0;display:flex;flex-direction:column;background:#fff;padding:calc(env(safe-area-inset-top) + 8px) 8px calc(env(safe-area-inset-bottom) + 8px)}
-.sigpad canvas{flex:1;width:100%;border:2px dashed #99a;border-radius:10px;touch-action:none;background:#fff;min-height:0}
+.sigpad .sighd{text-align:center;margin-bottom:6px;display:flex;flex-direction:column}
+.sigwrap{flex:1;position:relative;min-height:0;border:2px dashed #99a;border-radius:10px;background:#fff;overflow:hidden}
+.sigwrap canvas{position:absolute;inset:0;width:100%;height:100%;touch-action:none;display:block}
+@media (max-height:500px){.sigpad .sighd{flex-direction:row;justify-content:center;gap:12px;font-size:14px}.sigpad .btn{min-height:42px;padding:6px 12px}}
 .toast{position:fixed;left:50%;bottom:90px;transform:translateX(-50%);background:#1b2430;color:#fff;padding:10px 16px;border-radius:20px;z-index:99;font-size:14px;max-width:90%}
 /* report */
 #print{display:none}
@@ -106,12 +109,19 @@ table.tb th{background:#eef2f7}
 .rpt .sigs>div{border:1px solid #000;padding:6px;min-height:34mm}
 .rpt .sigs .role{font-weight:700}
 .rpt .sigs img{height:20mm;max-width:100%;display:block;margin:2px auto}
-.rpt .foot{margin-top:10px;font-size:10px;color:#333;word-break:break-all;border-top:1px solid #999;padding-top:4px}
+.rpt table.pgwrap,.rpt table.pgwrap>*>tr>td{border:none;padding:0}
+.rpt table.pgwrap>tbody>tr{break-inside:avoid;page-break-inside:avoid}
+.rpt table.pgwrap>tbody>tr.brk{break-inside:auto;page-break-inside:auto}
+.rpt table.pgwrap>thead>tr>td.sp,.rpt table.pgwrap>tfoot>tr>td.sp{height:0}
+.rpt .phgrid{margin-bottom:8px}
+.donebox{display:flex;align-items:center;gap:10px;flex-wrap:wrap;background:#dcf3e5;border:1px solid #9fd8b5;border-radius:10px;padding:10px;margin-top:8px}
 .rpt .avoid{break-inside:avoid;page-break-inside:avoid}
 .rpt .small{font-size:11px}
 .rptwrap{overflow-x:auto;background:#888;padding:8px;border-radius:10px}
 @media print{
-  @page{size:A4;margin:10mm}
+  @page{size:A4;margin:0}
+  .rpt table.pgwrap>thead>tr>td.sp,.rpt table.pgwrap>tfoot>tr>td.sp{height:10mm}
+  .rpt{padding:0 12mm!important}
   html,body{background:#fff}
   body>*:not(#print){display:none!important}
   #print{display:block!important}
@@ -155,7 +165,23 @@ function toast(msg, ms = 2200) { const t = document.createElement('div'); t.clas
 const STATUS = ['未開始', '施工中', '延宕', '待確認', '已完成', '取消'];
 const CLOSED = ['已完成', '取消'];
 const CATS = ['電氣', '弱電', '給排水', '消防', '建築配合', '材料進場', '其他'];
-const AREAS = ['B2F', 'B1F', '1F', '2F', 'RF屋頂', 'B2F 水塔機房', 'B1F 排風機房', '旅服中心', '禮堂', '梯廳', '儲藏室', '活動中心', '戶外景觀'];
+const LOCS = ['停車場B1', '停車場B2', '旅服中心1F', '旅服中心2F', '禮堂1F', '禮堂2F'];
+function locSelect(attr, val, ro) {
+  const list = [...S.settings.locations]; if (val && !list.includes(val)) list.push(val);
+  return `<select ${attr} data-loc ${ro}><option value="">（請選擇）</option>${list.map(l => `<option ${l === val ? 'selected' : ''}>${esc(l)}</option>`).join('')}<option value="__add">＋ 新增位置…</option></select>`;
+}
+async function locPicked(el, prev) {
+  if (el.value !== '__add') return el.value;
+  const n = (prompt('輸入新的位置名稱（例：停車場B2 水塔機房）') || '').trim();
+  if (!n) { el.value = prev || ''; return null; }
+  if (!S.settings.locations.includes(n)) { S.settings.locations.push(n); await DB.put('kv', S.settings); }
+  const o = document.createElement('option'); o.textContent = n; el.insertBefore(o, el.lastElementChild); el.value = n;
+  return n;
+}
+function attendeesOf(i) {
+  const a = i.signs.filter(s => s.img && s.name).map(s => `${s.role} ${s.name}`);
+  return a.length ? a.join('、') : (i.paper ? (i.attendees || '') : '');
+}
 
 /* ========== IndexedDB ========== */
 const DB = {
@@ -199,7 +225,7 @@ const DEFAULT_SETTINGS = {
     { role: '營造廠 品管工程師', org: '升富營造', name: '' },
     { role: '可曜企業有限公司 工地管理人', org: '可曜企業有限公司', name: '' },
   ],
-  stamp: true, gps: true, lastBackup: 0,
+  locations: LOCS.slice(), stamp: true, gps: true, lastBackup: 0,
 };
 const S = { settings: null, cur: null, photos: [] };
 
@@ -378,8 +404,8 @@ async function newInsp(date, extra = {}) {
   const [all, items] = await Promise.all([DB.all('insp'), DB.all('items')]);
   const prev = all.filter(i => i.date <= date).sort((a, b) => b.date.localeCompare(a.date))[0];
   const insp = Object.assign({
-    id: uid(), date, seq: all.length + 1, timeStart: hm(Date.now()), timeEnd: '', place: S.settings.place, weather: '',
-    attendees: prev ? prev.attendees : '', notes: '', entries: [],
+    id: uid(), date, seq: all.length + 1, timeStart: hm(Date.now()), timeEnd: '', place: S.settings.place,
+    notes: '', entries: [],
     signs: S.settings.signers.map(s => ({ role: s.role, org: s.org, name: s.name, img: null, at: null, absent: null })),
     log: [{ t: Date.now(), a: '建立紀錄' }], locked: null, createdAt: Date.now(),
   }, extra);
@@ -425,13 +451,9 @@ function tabBasic(app, lockMsg) {
       <div><label class="f">開始時間</label><input type="time" data-f="timeStart" value="${esc(i.timeStart)}" ${ro}></div>
       <div><label class="f">結束時間</label><input type="time" data-f="timeEnd" value="${esc(i.timeEnd)}" ${ro}></div>
     </div>
-    <div class="row">
-      <div><label class="f">會勘地點</label><input data-f="place" value="${esc(i.place)}" ${ro}></div>
-      <div><label class="f">天氣</label><input data-f="weather" value="${esc(i.weather)}" list="dlWeather" ${ro}></div>
-    </div>
-    <datalist id="dlWeather"><option>晴</option><option>陰</option><option>雨</option><option>颱風</option></datalist>
-    <label class="f">出席人員（單位／姓名）</label>
-    <textarea data-f="attendees" placeholder="例：升富營造 鄭博凱、可曜企業 ○○○" ${ro}>${esc(i.attendees)}</textarea>
+    <label class="f">會勘地點</label><input data-f="place" value="${esc(i.place)}" ${ro}>
+    <label class="f">出席人員（依「簽名」頁實際簽名人員自動產生）</label>
+    <div style="padding:10px;border:1px solid var(--line);border-radius:8px;background:#f3f5f8;min-height:44px">${esc(attendeesOf(i)) || '<span class="muted">尚無人簽名</span>'}</div>
     <label class="f">會勘說明 / 會議結論（一行一點，報表自動編號）</label>
     <textarea data-f="notes" style="min-height:180px" placeholder="1.本次會勘針對停車場B1、B2相關進度進行確認。&#10;2.……" ${ro}>${esc(i.notes)}</textarea>
   </div>
@@ -477,12 +499,12 @@ function tabItems(app, lockMsg) {
         <div style="margin-top:6px">
           ${c.overdue ? `<span class="tag red">已逾承諾日 ${days(e.promise, i.date)} 天</span>` : ''}
           ${c.postpones ? `<span class="tag org">延期 ${c.postpones} 次${c.postponedNow ? '（本次再延）' : ''}</span>` : ''}
-          ${c.delay ? `<span class="tag red">較首次承諾延宕 ${c.delay} 天</span>` : ''}
-          ${e.status === '已完成' ? '<span class="tag grn">已完成</span>' : ''}
+          ${c.delay && e.status !== '已完成' ? `<span class="tag red">較首次承諾延宕 ${c.delay} 天</span>` : ''}
+          ${e.status === '已完成' ? `<span class="tag grn">已完成</span>${c.delay ? `<span class="tag red">較首次承諾逾期 ${c.delay} 天</span>` : '<span class="tag grn">如期完成</span>'}` : ''}
           ${nph ? `<span class="tag blu">照片 ${nph}</span>` : ''}
         </div></div></div>
       <div class="row">
-        <div><label class="f">區域</label><input data-e="area" value="${esc(e.area)}" list="dlArea" ${ro}></div>
+        <div><label class="f">區域</label>${locSelect('data-e="area"', e.area, ro)}</div>
         <div><label class="f">類別</label><select data-e="cat" ${ro}><option></option>${CATS.map(x => `<option ${x === e.cat ? 'selected' : ''}>${x}</option>`).join('')}</select></div>
       </div>
       <div class="row">
@@ -490,10 +512,15 @@ function tabItems(app, lockMsg) {
         <div><label class="f">前次承諾日</label><input type="date" value="${esc(e.prevPromise)}" disabled></div>
         <div><label class="f">本次廠商承諾日</label><input type="date" data-e="promise" value="${esc(e.promise)}" ${ro}></div>
       </div>
-      <div class="row">
-        <div><label class="f">本次狀態</label><select data-e="status" ${ro}>${STATUS.map(x => `<option ${x === e.status ? 'selected' : ''}>${x}</option>`).join('')}</select></div>
-        ${e.status === '已完成' ? `<div><label class="f">完成日期</label><input type="date" data-e="doneDate" value="${esc(e.doneDate || i.date)}" ${ro}></div>` : ''}
-      </div>
+      ${e.status === '已完成' ? `<div class="donebox">
+        <b style="color:var(--grn);font-size:18px">✅ 已完成</b>
+        <div style="flex:1 1 150px"><label class="f" style="margin-top:0">完成日期</label><input type="date" data-e="doneDate" value="${esc(e.doneDate || i.date)}" ${ro}></div>
+        <div style="flex:1 1 100%">${c.first ? (c.delay ? `<b style="color:var(--red)">較首次承諾日 ${roc(c.first)} 逾期 ${c.delay} 天完成</b>` : `<b style="color:var(--grn)">於首次承諾日 ${roc(c.first)} 前完成</b>`) : '<span class="muted">（無首次承諾日，無法計算逾期天數）</span>'}</div>
+        ${ro ? '' : '<button class="btn" data-act="undone" style="flex:0 0 auto">取消完成</button>'}
+      </div>` : `<div class="row">
+        <div><label class="f">本次狀態</label><select data-e="status" ${ro}>${STATUS.filter(x => x !== '已完成').map(x => `<option ${x === e.status ? 'selected' : ''}>${x}</option>`).join('')}</select></div>
+        ${ro ? '' : '<button class="btn grn" data-act="done" style="flex:0 0 auto;align-self:flex-end">✅ 已完成</button>'}
+      </div>`}
       <label class="f">本次現場說明（廠商說法、延宕原因、要求事項）</label>
       <textarea data-e="note" style="min-height:70px" ${ro}>${esc(e.note)}</textarea>
       ${ro ? '' : `<div class="row" style="margin-top:8px">
@@ -505,16 +532,17 @@ function tabItems(app, lockMsg) {
     </div>`;
   }).join('');
   app.innerHTML = lockMsg + `
-    <datalist id="dlArea">${AREAS.map(a => `<option>${esc(a)}</option>`).join('')}</datalist>
     <div class="muted" style="margin:0 4px 8px">「本次廠商承諾日」若比前次晚，系統自動記為延期一次。首次承諾日一經記錄不會被覆蓋。</div>
     ${cards || '<div class="card muted">目前沒有追蹤事項，按下方新增。</div>'}
     ${ro ? '' : `<div class="row"><button class="btn big pri" id="addE">＋ 新增事項</button><button class="btn big" id="pullE">帶入其他追蹤事項</button></div>`}`;
   $$('.entry', app).forEach(card => {
     const k = +card.dataset.k, e = i.entries[k];
     $$('[data-e]', card).forEach(el => {
-      const ev = el.tagName === 'SELECT' || el.type === 'date' ? 'change' : 'input';
-      el.addEventListener(ev, () => {
-        const f = el.dataset.e; e[f] = el.value;
+      const ev = el.tagName === 'SELECT' || el.type === 'date' ? 'change' : 'input', isLoc = el.hasAttribute('data-loc');
+      el.addEventListener(ev, async () => {
+        const f = el.dataset.e;
+        if (isLoc && (await locPicked(el, e[f])) === null) return;
+        e[f] = el.value;
         if (f === 'promise' && !e.prevPromise && !e.firstPromise) e.firstPromise = el.value;
         if (f === 'status' && el.value === '已完成' && !e.doneDate) e.doneDate = i.date;
         if (f === 'status' && el.value !== '已完成') e.doneDate = '';
@@ -536,6 +564,8 @@ function tabItems(app, lockMsg) {
       if (a === 'up' && k > 0) [i.entries[k - 1], i.entries[k]] = [i.entries[k], i.entries[k - 1]];
       if (a === 'down' && k < i.entries.length - 1) [i.entries[k + 1], i.entries[k]] = [i.entries[k], i.entries[k + 1]];
       if (a === 'photo') { pickPhotos(true, e.itemId); return; }
+      if (a === 'done') { e.status = '已完成'; e.doneDate = i.date; e._lastStatus = '已完成'; addLog(`事項「${e.title}」標記已完成`); }
+      if (a === 'undone') { if (!confirm('取消「已完成」？')) return; e.status = '施工中'; e.doneDate = ''; e._lastStatus = '施工中'; addLog(`事項「${e.title}」取消已完成`); }
       await saveNow(); tabItems(app, lockMsg);
     });
   });
@@ -620,10 +650,9 @@ async function photoSheet(p) {
       <label class="f">施作項目 / 缺失內容</label><input data-p="title" value="${esc(p.title)}" ${ro}>
       <label class="f">說明</label><textarea data-p="desc" style="min-height:70px" ${ro}>${esc(p.desc)}</textarea>
       <div class="row">
-        <div><label class="f">拍攝位置</label><input data-p="loc" value="${esc(p.loc)}" list="dlArea2" ${ro}></div>
+        <div><label class="f">拍攝位置</label>${locSelect('data-p="loc"', p.loc, ro)}</div>
         <div><label class="f">關聯事項</label><select data-p="itemId" ${ro}><option value="">（無）</option>${i.entries.map((e, n) => `<option value="${e.itemId}" ${e.itemId === p.itemId ? 'selected' : ''}>${n + 1}. ${esc(e.title)}</option>`).join('')}</select></div>
       </div>
-      <datalist id="dlArea2">${AREAS.map(a => `<option>${esc(a)}</option>`).join('')}</datalist>
       <div class="muted" style="margin-top:8px">拍攝時間：${fmtDT(p.takenAt)}｜原始檔：${esc(p.origName || '')}${p.gps ? `<br>GPS：${p.gps.lat}, ${p.gps.lng}（±${p.gps.acc}m）` : ''}</div>
     </div>
     ${ro ? '' : `<div class="row"><button class="btn" id="pUp">← 往前</button><button class="btn" id="pDn">往後 →</button><button class="btn red" id="pDel">刪除照片</button></div>`}
@@ -631,6 +660,7 @@ async function photoSheet(p) {
   </div></div>`;
   let dirtyStamp = false;
   $$('[data-p]', M).forEach(el => el.addEventListener(el.tagName === 'SELECT' ? 'change' : 'input', async () => {
+    if (el.hasAttribute('data-loc') && (await locPicked(el, p.loc)) === null) return;
     p[el.dataset.p] = el.value; if (el.dataset.p === 'loc') dirtyStamp = true;
     await DB.put('photos', p); markSaved('已儲存 ✓');
   }));
@@ -774,24 +804,49 @@ function signPad(title) {
   return new Promise(resolve => {
     const M = $('#modal'); M.classList.add('on');
     M.innerHTML = `<div class="sigpad">
-      <div style="text-align:center;font-weight:700;margin-bottom:6px">${esc(title)}　請於框內簽名<br><span class="muted">手機可橫放以獲得較大簽名區</span></div>
-      <canvas></canvas>
+      <div class="sighd"><b>${esc(title)}　請於框內簽名</b><span class="muted">手機可橫放以獲得較大簽名區</span></div>
+      <div class="sigwrap"><canvas></canvas></div>
       <div class="row" style="margin-top:8px"><button class="btn" id="sgC">取消</button><button class="btn" id="sgR">清除</button><button class="btn pri" id="sgO">確認簽名</button></div></div>`;
-    const cv = $('canvas', M); let x, drew = false, last = null;
-    const setup = () => {
-      const r = cv.getBoundingClientRect(), dpr = Math.min(2, window.devicePixelRatio || 1);
-      cv.width = r.width * dpr; cv.height = r.height * dpr; x = cv.getContext('2d'); x.scale(dpr, dpr);
-      x.lineWidth = 2.8; x.lineCap = x.lineJoin = 'round'; x.strokeStyle = '#0a1a5c'; drew = false;
+    const wrap = $('.sigwrap', M), cv = $('canvas', M), x = cv.getContext('2d');
+    // 筆跡以「螢幕上的實際位置」記錄，每次依畫布當下大小換算，轉向或縮放都不會偏移
+    const strokes = []; let cur = null;
+    const ratio = () => cv.width / (cv.getBoundingClientRect().width || 1);
+    const stroke = s => {
+      x.beginPath();
+      if (s.length === 1) { x.arc(s[0][0], s[0][1], 1.4, 0, 7); x.fill(); return; }
+      s.forEach((p, i) => i ? x.lineTo(p[0], p[1]) : x.moveTo(p[0], p[1])); x.stroke();
     };
-    setTimeout(setup, 30); window.addEventListener('resize', setup);
+    const draw = () => {
+      const k = ratio(); x.setTransform(1, 0, 0, 1, 0, 0); x.clearRect(0, 0, cv.width, cv.height);
+      x.setTransform(k, 0, 0, k, 0, 0); x.lineWidth = 2.8; x.lineCap = x.lineJoin = 'round'; x.strokeStyle = x.fillStyle = '#0a1a5c';
+      strokes.forEach(stroke);
+    };
+    const setup = () => {
+      const r = cv.getBoundingClientRect(); if (!r.width || !r.height) return;
+      const dpr = Math.min(3, window.devicePixelRatio || 1);
+      cv.width = Math.round(r.width * dpr); cv.height = Math.round(r.height * dpr); draw();
+    };
+    const ro = window.ResizeObserver ? new ResizeObserver(setup) : null;
+    if (ro) ro.observe(wrap);
+    const onRot = () => setTimeout(setup, 300);
+    window.addEventListener('resize', onRot); window.addEventListener('orientationchange', onRot);
+    setTimeout(setup, 30);
     const pt = e => { const r = cv.getBoundingClientRect(); return [e.clientX - r.left, e.clientY - r.top]; };
-    cv.onpointerdown = e => { e.preventDefault(); cv.setPointerCapture(e.pointerId); last = pt(e); x.beginPath(); x.arc(last[0], last[1], 1.2, 0, 7); x.fillStyle = x.strokeStyle; x.fill(); drew = true; };
-    cv.onpointermove = e => { if (!last) return; const q = pt(e); x.beginPath(); x.moveTo(last[0], last[1]); x.lineTo(q[0], q[1]); x.stroke(); last = q; };
-    cv.onpointerup = cv.onpointercancel = () => { last = null; };
-    const end = v => { window.removeEventListener('resize', setup); closeModal(); resolve(v); };
+    cv.onpointerdown = e => { e.preventDefault(); cv.setPointerCapture(e.pointerId); cur = [pt(e)]; strokes.push(cur); draw(); };
+    cv.onpointermove = e => {
+      if (!cur) return; e.preventDefault();
+      const evs = e.getCoalescedEvents ? e.getCoalescedEvents() : [e];
+      (evs.length ? evs : [e]).forEach(v => cur.push(pt(v))); draw();
+    };
+    cv.onpointerup = cv.onpointercancel = () => { cur = null; };
+    const end = v => {
+      if (ro) ro.disconnect();
+      window.removeEventListener('resize', onRot); window.removeEventListener('orientationchange', onRot);
+      closeModal(); resolve(v);
+    };
     $('#sgC').onclick = () => end(null);
-    $('#sgR').onclick = () => { x.clearRect(0, 0, cv.width, cv.height); drew = false; };
-    $('#sgO').onclick = () => { if (!drew) return alert('尚未簽名'); end(trimCanvas(cv)); };
+    $('#sgR').onclick = () => { strokes.length = 0; draw(); };
+    $('#sgO').onclick = () => { if (!strokes.length) return alert('尚未簽名'); draw(); end(trimCanvas(cv)); };
   });
 }
 function trimCanvas(cv) {
@@ -822,34 +877,36 @@ function reportHTML(i, photos) {
     <div class="cap"><b>照片${k + 1}</b>${esc(p.title)}<br>
     ${p.desc ? `<b>說明：</b>${esc(p.desc)}<br>` : ''}
     ${p.itemId ? `<b>關聯事項：</b>${esc(titleOf(p.itemId))}<br>` : ''}
-    <b>拍攝時間：</b>${rocDT(p.takenAt)}<br><b>拍攝位置：</b>${esc(p.loc)}${p.gps ? `<span class="small">（GPS ${p.gps.lat},${p.gps.lng}）</span>` : ''}
-    ${i.locked && i.locked.photos && i.locked.photos[p.id] ? `<br><span class="small">原檔SHA-256：${i.locked.photos[p.id].orig.slice(0, 24)}…</span>` : ''}</div></div>`).join('');
+    <b>拍攝時間：</b>${rocDT(p.takenAt)}</div></div>`);
   const sigs = i.signs.map(s => `<div><div class="role">${esc(s.role)}</div>
     ${s.img ? `<img src="${s.img}">` : s.absent ? `<div class="red" style="padding:6mm 0;text-align:center">${esc(s.absent)}</div>` : '<div style="height:20mm"></div>'}
     <div>姓名：${esc(s.name)}</div><div class="small">${s.at ? '時間：' + rocDT(s.at) : ''}</div></div>`).join('');
-  return `<div class="rpt">
-    <h1>${esc(st.project)}</h1>
+  const pairs = []; for (let n = 0; n < phs.length; n += 2) pairs.push(`<div class="phgrid">${phs.slice(n, n + 2).join('')}</div>`);
+  return pages([
+    `<h1>${esc(st.project)}</h1>
     <div class="sub" style="font-size:17px;font-weight:700">機電工程　定期會勘紀錄（第 ${esc(i.seq)} 次）</div>
     <table class="kv">
       <tr><th>工程名稱</th><td colspan="3">${esc(st.project)}</td></tr>
       <tr><th>會勘日期</th><td>${roc(i.date)}（星期${wk(i.date)}）</td><th>會勘時間</th><td>${esc(i.timeStart)}${i.timeEnd ? ' ～ ' + esc(i.timeEnd) : ''}</td></tr>
-      <tr><th>會勘地點</th><td>${esc(i.place)}</td><th>天氣</th><td>${esc(i.weather)}</td></tr>
+      <tr><th>會勘地點</th><td colspan="3">${esc(i.place)}</td></tr>
       <tr><th>營造廠</th><td>${esc(st.gc)}</td><th>機電廠商</th><td>${esc(st.vendor)}</td></tr>
-      <tr><th>出席人員</th><td colspan="3">${esc(i.attendees).replace(/\n/g, '<br>')}</td></tr>
-    </table>
-    <h2>一、會勘說明及結論</h2>
-    ${notes.length ? `<ol>${notes.map(n => `<li>${esc(n)}</li>`).join('')}</ol>` : '<div>（無）</div>'}
-    <h2>二、事項追蹤（廠商承諾完成日管制）</h2>
-    <table class="small"><tr><th>項次</th><th>區域</th><th>事項內容</th><th>首次<br>承諾日</th><th>前次<br>承諾日</th><th>本次<br>承諾日</th><th>延期<br>次數</th><th>狀態</th><th>延宕<br>天數</th><th>現場說明</th></tr>
-    ${rows || '<tr><td colspan="10">（無）</td></tr>'}</table>
-    <div class="small">註：延宕天數＝以首次承諾完成日起算至本次會勘日（已完成者算至完成日）。紅字為本次再延期或已逾承諾日。</div>
-    <h2>三、現場照片</h2>
-    ${phs ? `<div class="phgrid">${phs}</div>` : '<div>（無）</div>'}
-    <div class="avoid"><h2>四、會同人員簽認</h2>
+      <tr><th>出席人員</th><td colspan="3">${esc(attendeesOf(i))}</td></tr>
+    </table>`,
+    { brk: true, h: `<h2>一、會勘說明及結論</h2>${notes.length ? `<ol>${notes.map(n => `<li>${esc(n)}</li>`).join('')}</ol>` : '<div>（無）</div>'}` },
+    { brk: true, h: `<h2>二、事項追蹤（廠商承諾完成日管制）</h2>
+    <table class="small"><thead><tr><th>項次</th><th>區域</th><th>事項內容</th><th>首次<br>承諾日</th><th>前次<br>承諾日</th><th>本次<br>承諾日</th><th>延期<br>次數</th><th>狀態</th><th>逾期<br>天數</th><th>現場說明</th></tr></thead>
+    <tbody>${rows || '<tr><td colspan="10">（無）</td></tr>'}</tbody></table>
+    <div class="small">註：逾期天數＝以首次承諾完成日起算至本次會勘日（已完成者算至完成日）。紅字為本次再延期或已逾承諾日。</div>` },
+    pairs.length ? `<h2>三、現場照片</h2>${pairs[0]}` : `<h2>三、現場照片</h2><div>（無）</div>`,
+    ...pairs.slice(1),
+    `<h2>四、會同人員簽認</h2>
     <div class="small" style="margin-bottom:4px">以上會勘內容業經各方於現場會同確認。</div>
-    <div class="sigs">${sigs}</div></div>
-    <div class="foot">紀錄編號：${esc(i.id)}｜建立：${fmtDT(i.createdAt)}｜${i.locked ? `定稿：${fmtDT(i.locked.at)}｜防竄改碼 SHA-256：${esc(i.locked.hash)}` : '<b>草稿（尚未定稿）</b>'}｜列印：${fmtDT(Date.now())}</div>
-  </div>`;
+    <div class="sigs">${sigs}</div>`,
+  ]);
+}
+// 列印時用表格頭尾留白，每頁上下都有邊界，不使用瀏覽器頁首頁尾
+function pages(blocks) {
+  return `<div class="rpt"><table class="pgwrap"><thead><tr><td class="sp"></td></tr></thead><tbody>${blocks.map(b => typeof b === 'string' ? `<tr><td>${b}</td></tr>` : `<tr class="brk"><td>${b.h}</td></tr>`).join('')}</tbody><tfoot><tr><td class="sp"></td></tr></tfoot></table></div>`;
 }
 function tabReport(app, lockMsg) {
   const i = S.cur;
@@ -892,10 +949,10 @@ async function viewItems() {
     <div class="card"><b>統計至 ${roc(today())}</b><div class="muted">共 ${items.length} 項；未完成 ${open.length} 項；已逾承諾日 ${open.filter(x => itemCalc(x).overdue).length} 項；累計延期 ${items.reduce((s, x) => s + (x.postpones || 0), 0)} 次。<br>延宕天數＝首次承諾日至今日（已完成者至完成日）。事項內容請在各次會勘紀錄中修改。</div>
     <button class="btn pri" id="prI" style="margin-top:8px">🖨 列印延宕追蹤總表</button></div>
     <div class="scrollx">${tableHTML(false)}</div>`;
-  $('#prI').onclick = () => doPrint(`<div class="rpt"><h1>${esc(S.settings.project)}</h1><div class="sub" style="font-size:16px;font-weight:700">機電工程（${esc(S.settings.vendor)}）承諾事項延宕追蹤總表</div>
-    <div class="sub">統計日期：${roc(today())}｜共 ${items.length} 項，未完成 ${open.length} 項，累計延期 ${items.reduce((s, x) => s + (x.postpones || 0), 0)} 次</div>${tableHTML(true)}
-    <div class="small">註：延宕天數＝首次承諾完成日起算至統計日（已完成者算至完成日）。資料來源為各次定期會勘紀錄（含各方簽認）。</div>
-    <div class="foot">列印：${fmtDT(Date.now())}</div></div>`, `${rocC(today())}_可曜機電延宕追蹤總表`);
+  $('#prI').onclick = () => doPrint(pages([`<h1>${esc(S.settings.project)}</h1><div class="sub" style="font-size:16px;font-weight:700">機電工程（${esc(S.settings.vendor)}）承諾事項延宕追蹤總表</div>
+    <div class="sub">統計日期：${roc(today())}｜共 ${items.length} 項，未完成 ${open.length} 項，累計延期 ${items.reduce((s, x) => s + (x.postpones || 0), 0)} 次</div>`,
+    { brk: true, h: tableHTML(true) },
+    `<div class="small">註：延宕天數＝首次承諾完成日起算至統計日（已完成者算至完成日）。資料來源為各次定期會勘紀錄（含各方簽認）。</div>`]), `${rocC(today())}_可曜機電延宕追蹤總表`);
 }
 
 /* ========== 設定 / 備份 ========== */
@@ -914,6 +971,10 @@ async function viewSettings() {
   <div class="card"><h3>簽名欄位（新建紀錄時套用）</h3>
     ${st.signers.map((s, k) => `<div class="row"><div><label class="f">職稱 ${k + 1}</label><input data-g="${k}" data-k="role" value="${esc(s.role)}"></div><div><label class="f">預設姓名</label><input data-g="${k}" data-k="name" value="${esc(s.name)}"></div></div>`).join('')}
   </div>
+  <div class="card"><h3>位置選單（拍攝位置／區域）</h3>
+    <label class="f">一行一個位置</label>
+    <textarea id="stLocs" style="min-height:160px">${esc(st.locations.join('\n'))}</textarea>
+  </div>
   <div class="card"><h3>照片</h3>
     <label style="display:flex;gap:8px;align-items:center;margin:6px 0"><input type="checkbox" id="stStamp" ${st.stamp ? 'checked' : ''} style="width:22px;height:22px"> 照片壓上日期時間與位置浮水印</label>
     <label style="display:flex;gap:8px;align-items:center;margin:6px 0"><input type="checkbox" id="stGps" ${st.gps ? 'checked' : ''} style="width:22px;height:22px"> 記錄 GPS 座標（不需網路，地下室可能抓不到）</label>
@@ -926,10 +987,11 @@ async function viewSettings() {
     <div class="muted">將 115/08/20 手寫會勘紀錄的 8 項事項及承諾日建為「紙本補登」紀錄，作為延宕追蹤的起點。<b>日期為辨識手寫字，匯入後請逐項核對。</b></div>
     <button class="btn" id="seed820" style="margin-top:8px">匯入 115/08/20 手寫事項</button>
   </div>
-  <div class="muted" style="text-align:center">版本 1.1｜離線可用</div>`;
+  <div class="muted" style="text-align:center">版本 1.3｜離線可用</div>`;
   const save = async () => { await DB.put('kv', st); markSaved('已儲存 ✓'); };
   $$('[data-s]').forEach(el => el.oninput = () => { st[el.dataset.s] = el.value; save(); });
   $$('[data-g]').forEach(el => el.oninput = () => { st.signers[+el.dataset.g][el.dataset.k] = el.value; save(); });
+  $('#stLocs').oninput = e => { st.locations = e.target.value.split('\n').map(x => x.trim()).filter(Boolean); save(); };
   $('#stStamp').onchange = e => { st.stamp = e.target.checked; save(); };
   $('#stGps').onchange = e => { st.gps = e.target.checked; save(); if (st.gps) navigator.geolocation?.getCurrentPosition(() => { }, () => { }); };
   $('#bkOut').onclick = exportBackup;
@@ -985,7 +1047,7 @@ async function seed820() {
     ['建築B2輕隔間牆監視器', '建築配合', '', 'B2F'],
   ];
   const insp = {
-    id: uid(), date: '2026-08-20', seq: 1, timeStart: '', timeEnd: '', place: S.settings.place, weather: '', paper: '1150820',
+    id: uid(), date: '2026-08-20', seq: 1, timeStart: '', timeEnd: '', place: S.settings.place, paper: '1150820',
     attendees: '升富營造 鄭博凱、可曜企業有限公司 代表', notes: '本紀錄依 115/08/20 紙本手寫會勘紀錄補登（原件掃描檔：1150820_機電會勘事宜.pdf），雙方已於紙本簽名。', entries: [],
     signs: S.settings.signers.map(s => ({ role: s.role, org: s.org, name: s.name, img: null, at: null, absent: null })),
     log: [{ t: Date.now(), a: '依紙本紀錄補登' }], locked: null, createdAt: Date.now(),
