@@ -26,10 +26,12 @@ main{max-width:860px;margin:0 auto;padding:12px 12px calc(90px + env(safe-area-i
 .card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px;margin-bottom:12px}
 .card h3{margin:0 0 8px;font-size:16px}
 .row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
-.row>*{flex:1 1 140px}
+.row>*{flex:1 1 140px;min-width:0}
 label.f{display:block;font-size:13px;color:var(--mut);margin:8px 0 2px}
 input[type=text],input[type=date],input[type=time],input:not([type]),select,textarea{width:100%;border:1px solid var(--line);border-radius:8px;padding:10px;background:#fff;min-height:44px}
 textarea{min-height:90px;resize:vertical}
+input[type=date],input[type=time]{-webkit-appearance:none;appearance:none;min-width:0;max-width:100%;display:block;text-align:left}
+input[type=date]::-webkit-date-and-time-value,input[type=time]::-webkit-date-and-time-value{text-align:left}
 input:disabled,select:disabled,textarea:disabled{background:#f3f5f8;color:#333}
 .btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;border:1px solid var(--line);background:#fff;border-radius:10px;padding:10px 14px;min-height:46px;font-weight:600;cursor:pointer}
 .btn.pri{background:var(--pri);border-color:var(--pri);color:#fff}
@@ -924,7 +926,7 @@ async function viewSettings() {
     <div class="muted">將 115/08/20 手寫會勘紀錄的 8 項事項及承諾日建為「紙本補登」紀錄，作為延宕追蹤的起點。<b>日期為辨識手寫字，匯入後請逐項核對。</b></div>
     <button class="btn" id="seed820" style="margin-top:8px">匯入 115/08/20 手寫事項</button>
   </div>
-  <div class="muted" style="text-align:center">版本 1.0｜離線可用</div>`;
+  <div class="muted" style="text-align:center">版本 1.1｜離線可用</div>`;
   const save = async () => { await DB.put('kv', st); markSaved('已儲存 ✓'); };
   $$('[data-s]').forEach(el => el.oninput = () => { st[el.dataset.s] = el.value; save(); });
   $$('[data-g]').forEach(el => el.oninput = () => { st.signers[+el.dataset.g][el.dataset.k] = el.value; save(); });
