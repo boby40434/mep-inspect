@@ -577,6 +577,8 @@ function tabItems(app, lockMsg) {
     </div>`;
   }).join('');
   app.innerHTML = lockMsg + `
+    ${i.entries.length ? `<div class="card"><b>工地 Excel 更新</b><div class="muted">匯出列管表傳給工地填寫進度，收回後匯入即可更新本次事項（只更新既有項目，不會新增）。</div>
+      <div class="row" style="margin-top:8px"><button class="btn grn" id="xlOut">📤 匯出列管表</button>${ro ? '' : '<button class="btn" id="xlIn">📥 匯入工地更新</button>'}</div></div>` : ''}
     <div class="muted" style="margin:0 4px 8px">「本次廠商承諾日」若比前次晚，系統自動記為延期一次。首次承諾日一經記錄不會被覆蓋。</div>
     ${cards || '<div class="card muted">目前沒有追蹤事項，按下方新增。</div>'}
     ${ro ? '' : `<div class="row"><button class="btn big pri" id="addE">＋ 新增事項</button><button class="btn big" id="pullE">帶入其他追蹤事項</button></div>`}`;
@@ -621,6 +623,8 @@ function tabItems(app, lockMsg) {
     await saveNow(); tabItems(app, lockMsg);
     const last = $$('.entry', app).pop(); last.scrollIntoView({ behavior: 'smooth' }); $('[data-e=title]', last).focus();
   };
+  if ($('#xlOut')) $('#xlOut').onclick = () => exportTrackXLSX(i);
+  if ($('#xlIn')) $('#xlIn').onclick = () => importTrackXLSX(i, () => tabItems(app, lockMsg));
   const pull = $('#pullE');
   if (pull) pull.onclick = async () => {
     const have = new Set(i.entries.map(e => e.itemId));
@@ -971,12 +975,11 @@ function tabReport(app, lockMsg) {
   app.innerHTML = lockMsg + `
     ${i.locked ? '' : '<div class="warn">此紀錄尚未定稿，報表會標示「草稿」。</div>'}
     <button class="btn big pri" id="pdf">📄 產生 PDF（可直接傳 LINE／Email）</button>
-    <div class="row" style="margin:8px 0 12px"><button class="btn grn" id="xls">📊 產生 Excel</button><button class="btn" id="pr">🖨 列印</button></div>
+    <button class="btn" id="pr" style="width:100%;margin:8px 0 12px">🖨 列印</button>
     <div class="rptwrap">${reportHTML(i, S.photos)}</div>`;
   const fname = `${rocC(i.date)}_赤崁樓機電會勘紀錄_第${i.seq}次${i.locked ? '' : '_草稿'}`;
   $('#pr').onclick = () => doPrint(reportHTML(i, S.photos), fname);
   $('#pdf').onclick = () => makePDF(reportBlocks(i, S.photos), fname);
-  $('#xls').onclick = () => makeXLSX(i, S.photos, fname);
 }
 async function doPrint(html, title) {
   const P = $('#print'); P.innerHTML = html;
@@ -1111,133 +1114,112 @@ function xlPage(ws) {
   ws.pageSetup = { paperSize: 9, orientation: 'portrait', fitToPage: true, fitToWidth: 1, fitToHeight: 0, horizontalCentered: true, margins: { left: 0.4, right: 0.4, top: 0.4, bottom: 0.4, header: 0, footer: 0 } };
   ws.views = [{ showGridLines: false }];
 }
-async function makeXLSX(i, photos, name) {
-  busy('產生 Excel 中…');
+// 列管表：給工地填寫更新（只能更新既有列管項目，不能新增）
+async function exportTrackXLSX(i) {
+  busy('產生列管表中…');
   try {
     await loadLib('exceljs.min.js');
     const st = S.settings, wb = new ExcelJS.Workbook(); wb.creator = st.gc;
-    const ws = wb.addWorksheet(`第${i.seq}次_${rocC(i.date)}`.slice(0, 31));
-    const W = [5, 12, 28, 10, 10, 10, 6, 12, 6, 26];
+    const ws = wb.addWorksheet('列管表');
+    const W = [14, 5, 14, 34, 11, 11, 12, 10, 12, 34];
     ws.columns = W.map(w => ({ width: w }));
-    xlPage(ws);
+    ws.getColumn(1).hidden = true;
+    xlPage(ws); ws.pageSetup.orientation = 'landscape';
     let r = 1;
-    xlBox(ws, r, 0, 9, st.project, { size: 16, bold: true, h: 'center', border: false }); ws.getRow(r).height = 26; r++;
-    xlBox(ws, r, 0, 9, `機電工程　定期會勘紀錄（第 ${i.seq} 次）`, { size: 13, bold: true, h: 'center', border: false }); ws.getRow(r).height = 22; r += 2;
-    const kv = (label, value, label2, value2) => {
-      xlBox(ws, r, 0, 1, label, { bold: true, fill: true, h: 'center' });
-      if (label2) { xlBox(ws, r, 2, 4, value); xlBox(ws, r, 5, 6, label2, { bold: true, fill: true, h: 'center' }); xlBox(ws, r, 7, 9, value2); }
-      else { xlBox(ws, r, 2, 9, value); ws.getRow(r).height = Math.max(18, xlLines(value, 100) * 14 + 4); }
-      r++;
-    };
-    kv('工程名稱', st.project);
-    kv('會勘日期', `${roc(i.date)}（星期${wk(i.date)}）`, '會勘時間', `${i.timeStart || ''}${i.timeEnd ? ' ～ ' + i.timeEnd : ''}`);
-    kv('會勘地點', i.place || '');
-    kv('營造廠', st.gc, '機電廠商', st.vendor);
-    kv('出席人員', attendeesOf(i));
-    r++;
-    // 一、會勘說明
-    xlBox(ws, r, 0, 9, '一、會勘說明及結論', { size: 12, bold: true, border: false }); r++;
-    const notes = (i.notes || '').split('\n').map(x => x.trim()).filter(Boolean).map(x => x.replace(/^\s*\d+\s*[.、．)]\s*/, ''));
-    (notes.length ? notes : ['（無）']).forEach((n, k) => {
-      const t = notes.length ? `${k + 1}. ${n}` : n;
-      xlBox(ws, r, 0, 9, t, { border: false, v: 'top' }); ws.getRow(r).height = xlLines(t, 120) * 14 + 2; r++;
-    });
-    r++;
-    // 二、事項追蹤
-    xlBox(ws, r, 0, 9, '二、事項追蹤（廠商承諾完成日管制）', { size: 12, bold: true, border: false }); r++;
-    ['項次', '區域', '事項內容', '首次承諾日', '前次承諾日', '本次承諾日', '延期次數', '狀態', '逾期天數', '現場說明'].forEach((h, k) => xlBox(ws, r, k, k, h, { bold: true, fill: true, h: 'center', size: 9 }));
-    ws.getRow(r).height = 28; r++;
+    xlBox(ws, r, 1, 9, `${st.project}　機電列管項目更新表`, { size: 15, bold: true, h: 'center', border: false }); ws.getRow(r).height = 24; r++;
+    xlBox(ws, r, 1, 9, `第 ${i.seq} 次會勘（${roc(i.date)}）｜廠商：${st.vendor}`, { size: 11, h: 'center', border: false }); r++;
+    xlBox(ws, r, 1, 9, '填寫說明：只需填寫黃色欄位。「新承諾日」有變更才填；「狀態」請用下拉選單；完成者請填「完成日期」。請勿新增、刪除或調整列順序。', { size: 9, red: true, border: false });
+    ws.getRow(r).height = 28; r += 2;
+    const HEAD = ['編號', '項次', '區域', '事項內容', '首次承諾日', '目前承諾日', '新承諾日', '狀態', '完成日期', '工地說明'];
+    HEAD.forEach((h, k) => xlBox(ws, r, k, k, h, { bold: true, fill: true, h: 'center' }));
+    ws.getRow(r).height = 22;
+    const head = r; r++;
+    const yellow = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFF6C7' } };
     i.entries.forEach((e, k) => {
       const c = entryCalc(e, i.date);
-      const title = e.title + (e.cat ? `\n［${e.cat}］` : '');
-      let status = e.status;
-      if (c.overdue) status += `\n逾期${days(e.promise, i.date)}天`;
-      if (e.status === '已完成' && e.doneDate) status += `\n${roc(e.doneDate)}${c.first && !c.delay ? '\n（如期完成）' : ''}`;
-      const vals = [k + 1, e.area || '', title, roc(c.first), roc(e.prevPromise), roc(e.promise), c.postpones || '-', status, c.delay || '-', e.note || ''];
-      const red = [false, false, false, false, false, c.postponedNow, !!c.postpones, c.overdue, !!c.delay, false];
-      vals.forEach((v, n) => xlBox(ws, r, n, n, v, { size: 9, red: red[n], v: 'top', h: [0, 6, 8].includes(n) ? 'center' : 'left' }));
-      ws.getRow(r).height = Math.max(...vals.map((v, n) => xlLines(v, W[n]))) * 12.5 + 4; r++;
+      const vals = [e.itemId, k + 1, e.area || '', e.title, roc(c.first), roc(e.promise), '', e.status, e.status === '已完成' ? roc(e.doneDate) : '', ''];
+      vals.forEach((v, n) => xlBox(ws, r, n, n, v, { h: [1, 4, 5, 6, 7, 8].includes(n) ? 'center' : 'left', v: 'top' }));
+      for (const n of [6, 7, 8, 9]) { const cell = ws.getCell(XCOL[n] + r); cell.fill = yellow; cell.protection = { locked: false }; }
+      ws.getCell('H' + r).dataValidation = { type: 'list', allowBlank: true, formulae: ['"' + STATUS.join(',') + '"'], showErrorMessage: true, errorTitle: '狀態', error: '請從下拉選單選擇' };
+      ws.getRow(r).height = Math.max(xlLines(e.title, W[3]), 2) * 14 + 4;
+      r++;
     });
-    if (!i.entries.length) { xlBox(ws, r, 0, 9, '（無）'); r++; }
-    xlBox(ws, r, 0, 9, '註：逾期天數＝以首次承諾完成日起算至本次會勘日（已完成者算至完成日）。紅字為本次再延期或已逾承諾日。', { size: 8, border: false });
-    r += 2;
-    // 三、現場照片（每列兩張）
-    xlBox(ws, r, 0, 9, '三、現場照片', { size: 12, bold: true, border: false }); r++;
-    if (!photos.length) { xlBox(ws, r, 0, 9, '（無）', { border: false }); r++; }
-    const titleOf = id => { const n = i.entries.findIndex(e => e.itemId === id); return n < 0 ? '' : `${n + 1}. ${i.entries[n].title}`; };
-    const halves = [[0, 4, 455], [5, 9, 420]];
-    for (let n = 0; n < photos.length; n += 2) {
-      const pair = photos.slice(n, n + 2);
-      let capMax = 1, imgH = 0;
-      for (let q = 0; q < pair.length; q++) {
-        const ph = pair[q], [c1, c2, px] = halves[q];
-        const durl = await blobToDataURL(ph.annot || ph.orig);
-        const id = wb.addImage({ base64: durl, extension: 'jpeg' });
-        const ext = fitBox([ph.w || 4, ph.h || 3], px - 20, 280); imgH = Math.max(imgH, ext.height);
-        xlBox(ws, r, c1, c2, '');
-        ws.addImage(id, { tl: { col: c1 + 0.1, row: r - 1 + 0.02 }, ext, editAs: 'oneCell' });
-        const cap = `照片${n + q + 1}　${ph.title || ''}` + (ph.desc ? `\n說明：${ph.desc}` : '') + (ph.itemId ? `\n關聯事項：${titleOf(ph.itemId)}` : '') + `\n拍攝時間：${rocDT(ph.takenAt)}`;
-        xlBox(ws, r + 1, c1, c2, cap, { size: 9, v: 'top' });
-        capMax = Math.max(capMax, xlLines(cap, c2 === 4 ? 64 : 58));
-      }
-      // Excel 實際列高會比設定值略矮，多留 15% 避免照片蓋到下方說明
-      ws.getRow(r).height = Math.min(409, Math.round(imgH * 0.75 * 1.15) + 10);
-      ws.getRow(r + 1).height = capMax * 13 + 6;
-      ws.getRow(r + 2).height = 8;
-      r += 3;
-    }
-    r++;
-    // 四、會同人員簽認（每列兩位）
-    xlBox(ws, r, 0, 9, '四、會同人員簽認', { size: 12, bold: true, border: false }); r++;
-    xlBox(ws, r, 0, 9, '以上會勘內容業經各方於現場會同確認。', { size: 9, border: false }); r++;
-    for (let n = 0; n < i.signs.length; n += 2) {
-      const pair = i.signs.slice(n, n + 2);
-      for (let q = 0; q < 2; q++) {
-        const sg = pair[q], [c1, c2, px] = halves[q];
-        xlBox(ws, r, c1, c2, sg ? sg.role : '', { bold: true });
-        xlBox(ws, r + 1, c1, c2, sg && !sg.img && sg.absent ? sg.absent : '', { red: true, h: 'center' });
-        xlBox(ws, r + 2, c1, c2, sg ? `姓名：${sg.name || ''}` : '');
-        xlBox(ws, r + 3, c1, c2, sg && sg.at ? `時間：${rocDT(sg.at)}` : '', { size: 9 });
-        if (sg && sg.img) {
-          const id = wb.addImage({ base64: sg.img, extension: 'png' });
-          const ext = fitBox(await imgSize(sg.img), Math.min(240, px - 20), 72);
-          ws.addImage(id, { tl: { col: c1 + 0.3, row: r + 0.06 }, ext, editAs: 'oneCell' });
-        }
-      }
-      ws.getRow(r).height = 18; ws.getRow(r + 1).height = 60; ws.getRow(r + 2).height = 18; ws.getRow(r + 3).height = 16;
-      r += 4;
-    }
+    ws.views = [{ showGridLines: false, state: 'frozen', ySplit: head }];
+    await ws.protect('', { selectLockedCells: true, selectUnlockedCells: true, formatColumns: true, formatRows: true });
     const buf = await wb.xlsx.writeBuffer();
-    fileReady(new File([buf], name + '.xlsx', { type: XL_TYPE }), 'Excel', `照片 ${photos.length} 張`);
+    fileReady(new File([buf], `${rocC(i.date)}_可曜列管項目更新表_第${i.seq}次.xlsx`, { type: XL_TYPE }), 'Excel 列管表', `共 ${i.entries.length} 項`);
   } catch (e) { console.error(e); closeModal(); alert('Excel 產生失敗：' + e.message); }
 }
-async function makeSumXLSX(items, name) {
-  busy('產生 Excel 中…');
-  try {
-    await loadLib('exceljs.min.js');
-    const st = S.settings, wb = new ExcelJS.Workbook(); wb.creator = st.gc;
-    const ws = wb.addWorksheet('延宕追蹤總表');
-    const W = [46, 16, 12, 12, 10];
-    ws.columns = W.map(w => ({ width: w }));
-    xlPage(ws);
-    let r = 1;
-    xlBox(ws, r, 0, 4, st.project, { size: 15, bold: true, h: 'center', border: false }); ws.getRow(r).height = 24; r++;
-    xlBox(ws, r, 0, 4, `機電工程（${st.vendor}）承諾事項延宕追蹤總表`, { size: 12, bold: true, h: 'center', border: false }); r++;
-    const open = items.filter(x => !CLOSED.includes(x.status));
-    xlBox(ws, r, 0, 4, `統計日期：${roc(today())}｜共 ${items.length} 項，未完成 ${open.length} 項，累計延期 ${items.reduce((a, x) => a + (x.postpones || 0), 0)} 次`, { size: 9, h: 'center', border: false }); r += 2;
-    ['事項', '區域', '首次承諾', '最新承諾', '延期次數'].forEach((h, k) => xlBox(ws, r, k, k, h, { bold: true, fill: true, h: 'center' }));
-    ws.views = [{ showGridLines: false, state: 'frozen', ySplit: r }];
-    r++;
-    items.forEach(it => {
-      const vals = [it.title || '', it.area || '', roc(it.firstPromise), roc(it.latestPromise), it.postpones || 0];
-      vals.forEach((v, n) => xlBox(ws, r, n, n, v, { red: n === 4 && it.postpones > 0, bold: n === 4 && it.postpones > 0, h: n >= 2 ? 'center' : 'left' }));
-      ws.getRow(r).height = Math.max(...vals.map((v, n) => xlLines(v, W[n]))) * 14 + 4; r++;
-    });
-    r++;
-    xlBox(ws, r, 0, 4, '註：資料來源為各次定期會勘紀錄（含各方簽認）。', { size: 9, border: false });
-    const buf = await wb.xlsx.writeBuffer();
-    fileReady(new File([buf], name + '.xlsx', { type: XL_TYPE }), 'Excel', `共 ${items.length} 項`);
-  } catch (e) { console.error(e); closeModal(); alert('Excel 產生失敗：' + e.message); }
+// 解析工地填的日期：Excel 日期、2026/10/30、115/10/30、115.10.30、10/30
+function parseXlDate(v, refDate) {
+  if (v == null || v === '') return '';
+  if (v instanceof Date) return v.getUTCFullYear() + '-' + pad(v.getUTCMonth() + 1) + '-' + pad(v.getUTCDate());
+  if (typeof v === 'number' && v > 20000 && v < 80000) { const d = new Date(Math.round((v - 25569) * 864e5)); return d.getUTCFullYear() + '-' + pad(d.getUTCMonth() + 1) + '-' + pad(d.getUTCDate()); }
+  if (typeof v === 'object' && v.text) v = v.text;
+  const t = String(v).trim();
+  let m = t.match(/^(\d{2,4})\s*[\/\-.年]\s*(\d{1,2})\s*[\/\-.月]\s*(\d{1,2})/);
+  if (m) { let y = +m[1]; if (y < 1911) y += 1911; return y + '-' + pad(+m[2]) + '-' + pad(+m[3]); }
+  m = t.match(/^(\d{1,2})\s*[\/\-.月]\s*(\d{1,2})/);
+  if (m) return refDate.slice(0, 4) + '-' + pad(+m[1]) + '-' + pad(+m[2]);
+  return null;
+}
+const cellText = v => v == null ? '' : typeof v === 'object' ? (v.text || (v.richText ? v.richText.map(x => x.text).join('') : v.result ?? '')) : String(v);
+function importTrackXLSX(i, done) {
+  const inp = document.createElement('input'); inp.type = 'file'; inp.accept = '.xlsx,' + XL_TYPE;
+  inp.onchange = async () => {
+    const f = inp.files[0]; if (!f) return;
+    busy('讀取 Excel 中…');
+    try {
+      await loadLib('exceljs.min.js');
+      const wb = new ExcelJS.Workbook(); await wb.xlsx.load(await f.arrayBuffer());
+      let ws = null, head = 0;
+      wb.eachSheet(sh => { if (ws) return; sh.eachRow((row, n) => { if (!head && cellText(row.getCell(1).value).trim() === '編號') { ws = sh; head = n; } }); });
+      if (!ws) throw new Error('找不到列管表（請使用 App 匯出的列管表檔案）');
+      const changes = [], skipped = [], warns = [];
+      for (let n = head + 1; n <= ws.rowCount; n++) {
+        const row = ws.getRow(n), id = cellText(row.getCell(1).value).trim();
+        const title = cellText(row.getCell(4).value).trim();
+        if (!id && !title) continue;
+        const e = i.entries.find(x => x.itemId === id);
+        if (!e) { skipped.push(title || `第 ${n} 列`); continue; }
+        const ch = { e, set: {} };
+        const np = parseXlDate(row.getCell(7).value, i.date);
+        if (np === null) warns.push(`「${e.title}」新承諾日格式無法辨識，已略過`);
+        else if (np && np !== e.promise) ch.set.promise = np;
+        const stt = cellText(row.getCell(8).value).trim();
+        if (stt && !STATUS.includes(stt)) warns.push(`「${e.title}」狀態「${stt}」不在選項內，已略過`);
+        else if (stt && stt !== e.status) ch.set.status = stt;
+        const dd = parseXlDate(row.getCell(9).value, i.date);
+        if (dd === null) warns.push(`「${e.title}」完成日期格式無法辨識，已略過`);
+        const finalStatus = ch.set.status || e.status;
+        if (finalStatus === '已完成') { const want = dd || e.doneDate || i.date; if (want !== e.doneDate) ch.set.doneDate = want; }
+        else if (ch.set.status && e.doneDate) ch.set.doneDate = '';
+        const note = cellText(row.getCell(10).value).trim();
+        if (note && !(e.note || '').includes(note)) ch.set.note = (e.note ? e.note + '\n' : '') + '工地回覆：' + note;
+        if (Object.keys(ch.set).length) changes.push(ch);
+      }
+      const lines = changes.map(({ e, set }) => `<div class="card" style="padding:10px;margin-bottom:8px"><b>${esc(e.title)}</b><div class="muted">` + [
+        set.promise ? `承諾日：${roc(e.promise) || '（無）'} → <b style="color:var(--red)">${roc(set.promise)}</b>${e.promise && set.promise > e.promise ? '（延期）' : ''}` : '',
+        set.status ? `狀態：${esc(e.status)} → <b>${esc(set.status)}</b>` : '',
+        set.doneDate ? `完成日期：${roc(set.doneDate)}` : '',
+        set.note ? `說明：${esc(set.note.split('\n').pop())}` : '',
+      ].filter(Boolean).join('<br>') + '</div></div>').join('');
+      const M = $('#modal'); M.classList.add('on');
+      M.innerHTML = `<div class="sheet"><div class="inner"><h3>工地更新內容確認</h3>
+        <div class="muted" style="margin-bottom:8px">檔案：${esc(f.name)}｜可更新 ${changes.length} 項${skipped.length ? `｜略過 ${skipped.length} 列（非本次列管項目，不會新增）` : ''}</div>
+        ${warns.length ? `<div class="warn">${warns.map(esc).join('<br>')}</div>` : ''}
+        ${lines || '<div class="card muted">沒有任何變更</div>'}
+        ${skipped.length ? `<div class="muted" style="margin:8px 4px">略過：${skipped.map(esc).join('、')}</div>` : ''}
+        <div class="row" style="margin-top:12px"><button class="btn big" id="impC">取消</button>${changes.length ? `<button class="btn big pri" id="impO">套用 ${changes.length} 項更新</button>` : ''}</div></div></div>`;
+      $('#impC').onclick = closeModal;
+      if (changes.length) $('#impO').onclick = async () => {
+        for (const { e, set } of changes) { Object.assign(e, set); if (set.status) e._lastStatus = set.status; }
+        addLog(`匯入工地 Excel 更新 ${changes.length} 項（${f.name}）`);
+        await saveNow(); closeModal(); toast(`已更新 ${changes.length} 項`); done();
+      };
+    } catch (e) { console.error(e); closeModal(); alert('匯入失敗：' + e.message); }
+  };
+  inp.click();
 }
 
 /* ========== 延宕追蹤總表 ========== */
@@ -1254,7 +1236,7 @@ async function viewItems() {
   const open = items.filter(i => !CLOSED.includes(i.status));
   $('#app').innerHTML = `
     <div class="card"><b>統計至 ${roc(today())}</b><div class="muted">共 ${items.length} 項；未完成 ${open.length} 項；已逾承諾日 ${open.filter(x => itemCalc(x).overdue).length} 項；累計延期 ${items.reduce((s, x) => s + (x.postpones || 0), 0)} 次。<br>事項內容請在各次會勘紀錄中修改。</div>
-    <div class="row" style="margin-top:8px"><button class="btn pri" id="pdfI">📄 產生 PDF</button><button class="btn grn" id="xlsI">📊 Excel</button><button class="btn" id="prI">🖨 列印</button></div></div>
+    <div class="row" style="margin-top:8px"><button class="btn pri" id="pdfI">📄 產生 PDF</button><button class="btn" id="prI">🖨 列印</button></div></div>
     <div class="scrollx">${tableHTML(false)}</div>`;
   const sumBlocks = () => [`<h1>${esc(S.settings.project)}</h1><div class="sub" style="font-size:16px;font-weight:700">機電工程（${esc(S.settings.vendor)}）承諾事項延宕追蹤總表</div>
     <div class="sub">統計日期：${roc(today())}｜共 ${items.length} 項，未完成 ${open.length} 項，累計延期 ${items.reduce((s, x) => s + (x.postpones || 0), 0)} 次</div>`,
@@ -1263,7 +1245,6 @@ async function viewItems() {
   const sumName = `${rocC(today())}_可曜機電延宕追蹤總表`;
   $('#prI').onclick = () => doPrint(pages(sumBlocks()), sumName);
   $('#pdfI').onclick = () => makePDF(sumBlocks(), sumName);
-  $('#xlsI').onclick = () => makeSumXLSX(items, sumName);
 }
 
 /* ========== 設定 / 備份 ========== */
@@ -1384,7 +1365,7 @@ async function seed820() {
 }
 
 /* ========== 版本更新 ========== */
-const APP_VER = '1.8';
+const APP_VER = '1.9';
 async function checkUpdate() {
   const msg = t => { const m = $('#updMsg'); if (m) m.textContent = t; };
   if (!navigator.onLine) return msg('目前離線，請在有網路的地方再按一次');
