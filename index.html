@@ -1408,7 +1408,7 @@ async function seed820() {
 }
 
 /* ========== 雲端同步 ========== */
-const SYNC_URL_DEFAULT = '';
+const SYNC_URL_DEFAULT = 'https://script.google.com/macros/s/AKfycbxtU7sDyLU1341q_dtxjs2os0UOtlZBxrUVQzQ7zCqwj-lX8-bbgxATX2DYm4ui1bAk0A/exec';
 const b64Of = b => new Promise(r => { const f = new FileReader(); f.onload = () => r(String(f.result).split(',')[1]); f.readAsDataURL(b); });
 const b64Blob = (b64, type) => { const bin = atob(b64), u = new Uint8Array(bin.length); for (let k = 0; k < bin.length; k++) u[k] = bin.charCodeAt(k); return new Blob([u], { type: type || 'image/jpeg' }); };
 async function saveDev() { await DB.putRaw('kv', Sync.dev); }
