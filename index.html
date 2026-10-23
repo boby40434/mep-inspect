@@ -120,6 +120,9 @@ table.tb th{background:#eef2f7;white-space:nowrap}
 .rpt table.pgwrap>tbody>tr.brk{break-inside:auto;page-break-inside:auto}
 .rpt table.pgwrap>thead>tr>td.sp,.rpt table.pgwrap>tfoot>tr>td.sp{height:0}
 .rpt .phgrid{margin-bottom:8px}
+.rpt table.trk th{font-size:12px;background:#fff}
+.rpt table.trk td{font-size:12px;height:34px;vertical-align:middle}
+table.tb.trk td{vertical-align:middle}
 .donebox{display:flex;align-items:center;gap:10px;flex-wrap:wrap;background:#dcf3e5;border:1px solid #9fd8b5;border-radius:10px;padding:10px;margin-top:8px}
 .rpt .avoid{break-inside:avoid;page-break-inside:avoid}
 .rpt .small{font-size:11px}
@@ -350,18 +353,43 @@ function entryFromItem(it) {
     basePostpones: it.postpones || 0, status: it.status || '未開始', note: '', doneDate: it.doneDate || '',
   };
 }
+// 列管頁的直接更新帶進未定稿的會勘紀錄（只帶比本次紀錄編輯更新的部分）
+async function refreshEntries(insp) {
+  const all = await DB.all('insp');
+  if (all.some(x => x.date > insp.date)) return false;   // 只更新最新一次會勘
+  let changed = false;
+  const items = await DB.all('items'), have = new Set(insp.entries.map(e => e.itemId));
+  for (const e of insp.entries) {
+    const it = items.find(x => x.id === e.itemId);
+    if (!it || !it.lastUpdate || it.lastUpdate <= (e._editedAt || 0) || it.lastUpdate <= (e._fromItem || 0)) continue;
+    e.prevPromise = it.prevPromise || it.latestPromise || e.prevPromise;
+    e.promise = it.latestPromise || '';
+    e.firstPromise = it.firstPromise || e.firstPromise;
+    e.basePostpones = Math.max(0, (it.postpones || 0) - (e.promise && e.prevPromise && e.promise > e.prevPromise ? 1 : 0));
+    e.status = it.status; e.doneDate = it.doneDate || '';
+    e.note = [it.progress, it.remark].filter(Boolean).join('；') || e.note;
+    e._fromItem = it.lastUpdate; changed = true;
+  }
+  for (const it of items) {
+    if (have.has(it.id) || CLOSED.includes(it.status) || !(it.createdAt > insp.createdAt)) continue;
+    insp.entries.push(entryFromItem(it)); changed = true;
+  }
+  return changed;
+}
 async function syncItems(insp) {
   for (const e of insp.entries) {
     const it = await DB.get('items', e.itemId); if (!it) continue;
     const c = entryCalc(e, insp.date);
     it.history = it.history || {};
     it.history[insp.id] = { date: insp.date, seq: insp.seq, status: e.status, promise: e.promise, note: e.note, postponed: c.postponedNow };
-    if (!it.lastInspDate || insp.date >= it.lastInspDate) {
+    const direct = it.lastUpdate && it.lastUpdate > (e._editedAt || 0);   // 列管頁有較新的直接更新
+    if (!direct && (!it.lastInspDate || insp.date >= it.lastInspDate)) {
       Object.assign(it, {
         title: e.title, area: e.area, cat: e.cat, status: e.status, latestPromise: e.promise,
         firstPromise: e.firstPromise || e.promise || '', postpones: c.postpones, lastInspDate: insp.date,
         doneDate: e.status === '已完成' ? (e.doneDate || insp.date) : '',
       });
+      if (e._editedAt && e.prevPromise && e.promise !== e.prevPromise) it.prevPromise = e.prevPromise;
     }
     await DB.put('items', it);
   }
@@ -392,7 +420,7 @@ function setTabs(items) {
 }
 const mainTabs = on => setTabs([
   { h: '#/', i: '🏠', l: '首頁', on: on === 'home' },
-  { h: '#/items', i: '📋', l: '延宕追蹤', on: on === 'items' },
+  { h: '#/items', i: '📋', l: '列管追蹤', on: on === 'items' },
   { h: '#/settings', i: '⚙️', l: '設定/備份', on: on === 'settings' },
 ]);
 
@@ -455,6 +483,7 @@ async function viewInsp(id, tab) {
     S.cur = await DB.get('insp', id);
     if (!S.cur) { location.hash = '#/'; return; }
     S.photos = (await DB.photosOf(id)).sort((a, b) => a.createdAt - b.createdAt);
+    if (!S.cur.locked && await refreshEntries(S.cur)) await saveNow();
   }
   const i = S.cur;
   setHeader(`第${i.seq}次 ${roc(i.date)} 會勘`, '#/');
@@ -616,7 +645,7 @@ function tabItems(app, lockMsg) {
       el.addEventListener(ev, async () => {
         const f = el.dataset.e;
         if (isLoc && (await locPicked(el, e[f])) === null) return;
-        e[f] = el.value;
+        e[f] = el.value; e._editedAt = Date.now();
         if (f === 'promise' && !e.prevPromise && !e.firstPromise) e.firstPromise = el.value;
         if (f === 'status' && el.value === '已完成' && !e.doneDate) e.doneDate = i.date;
         if (f === 'status' && el.value !== '已完成') e.doneDate = '';
@@ -638,6 +667,7 @@ function tabItems(app, lockMsg) {
       if (a === 'up' && k > 0) [i.entries[k - 1], i.entries[k]] = [i.entries[k], i.entries[k - 1]];
       if (a === 'down' && k < i.entries.length - 1) [i.entries[k + 1], i.entries[k]] = [i.entries[k], i.entries[k + 1]];
       if (a === 'photo') { pickPhotos(true, e.itemId); return; }
+      if (a === 'done' || a === 'undone') e._editedAt = Date.now();
       if (a === 'done') { e.status = '已完成'; e.doneDate = i.date; e._lastStatus = '已完成'; addLog(`事項「${e.title}」標記已完成`); }
       if (a === 'undone') { if (!confirm('取消「已完成」？')) return; e.status = '施工中'; e.doneDate = ''; e._lastStatus = '施工中'; addLog(`事項「${e.title}」取消已完成`); }
       await saveNow(); tabItems(app, lockMsg);
@@ -1245,7 +1275,7 @@ function importTrackXLSX(i, done) {
         <div class="row" style="margin-top:12px"><button class="btn big" id="impC">取消</button>${changes.length ? `<button class="btn big pri" id="impO">套用 ${changes.length} 項更新</button>` : ''}</div></div></div>`;
       $('#impC').onclick = closeModal;
       if (changes.length) $('#impO').onclick = async () => {
-        for (const { e, set } of changes) { Object.assign(e, set); if (set.status) e._lastStatus = set.status; }
+        for (const { e, set } of changes) { Object.assign(e, set, { _editedAt: Date.now() }); if (set.status) e._lastStatus = set.status; }
         addLog(`匯入工地 Excel 更新 ${changes.length} 項（${f.name}）`);
         await saveNow(); closeModal(); toast(`已更新 ${changes.length} 項`); done();
       };
@@ -1254,29 +1284,147 @@ function importTrackXLSX(i, done) {
   inp.click();
 }
 
-/* ========== 延宕追蹤總表 ========== */
-async function viewItems() {
-  S.cur = null; setHeader('延宕追蹤總表', null); mainTabs('items'); markSaved('');
-  const items = await DB.all('items');
-  items.sort((a, b) => (CLOSED.includes(a.status) - CLOSED.includes(b.status)) || (b.postpones || 0) - (a.postpones || 0) || (a.firstPromise || '9').localeCompare(b.firstPromise || '9'));
-  const tableHTML = forPrint => `<table class="${forPrint ? 'small' : 'tb'}"><thead><tr><th>事項</th><th>區域</th><th>首次承諾</th><th>最新承諾</th><th>延期次數</th></tr></thead><tbody>
-    ${items.map(it => {
-      const red = forPrint ? 'class="red"' : 'style="color:var(--red);font-weight:700"';
-      return `<tr><td>${esc(it.title)}</td><td>${esc(it.area)}</td><td>${roc(it.firstPromise)}</td><td>${roc(it.latestPromise)}</td>
-        <td ${it.postpones ? red : ''} style="text-align:center">${it.postpones || 0}</td></tr>`;
+/* ========== 機電列管追蹤（同事直接更新進度） ========== */
+const itemName = it => [it.area, it.title].filter(Boolean).join(' ') + (it.cat ? ` [${it.cat}]` : '');
+const itemSort = (a, b) => (a.no || a.createdAt || 0) - (b.no || b.createdAt || 0);
+// 辦理情形：有文字說明就顯示說明，已完成則顯示「已完成」
+const prevText = it => roc(it.prevPromise || (it.history && Object.keys(it.history).length ? it.latestPromise : ''));
+const progressText = it => it.status === '已完成' ? '已完成' : (it.progress || it.status || '');
+function trackInfo(items) {
+  const upd = items.map(x => x.lastUpdate || 0).reduce((m, x) => Math.max(m, x), 0);
+  return { upd, updDate: upd ? ymd(upd) : today() };
+}
+function trackTable(items, forPrint) {
+  const { updDate } = trackInfo(items);
+  const hl = (it, f) => it.hl && it.hl[f] === updDate;
+  return `<table class="${forPrint ? 'trk' : 'tb trk'}"><thead><tr><th style="width:4%">項次</th><th style="width:30%">事項內容</th><th style="width:10%">首次承諾日</th><th style="width:10%">前次承諾日</th><th style="width:10%">本次承諾日</th><th style="width:20%">辦理情形<br><span style="font-weight:400">(進行中、未開始、已完成)</span></th><th style="width:16%">約再幾天完成</th></tr></thead><tbody>
+    ${items.map((it, k) => {
+      const c = itemCalc(it), late = c.delay > 0 || c.overdue;
+      return `<tr><td style="text-align:center">${k + 1}</td><td>${esc(itemName(it))}</td><td>${roc(it.firstPromise)}</td><td>${prevText(it)}</td>
+        <td class="${late ? 'red' : ''}" style="${late ? 'color:#c00000;font-weight:700' : ''}${hl(it, 'promise') ? ';background:#fff27a' : ''}">${roc(it.latestPromise)}</td>
+        <td style="${it.status === '已完成' ? 'font-weight:700;' : ''}${hl(it, 'progress') || hl(it, 'status') ? 'background:#f8c471;font-weight:700' : ''}">${esc(progressText(it)).replace(/\n/g, '<br>')}</td>
+        <td style="${hl(it, 'remark') ? 'background:#fff27a;font-weight:700' : ''}">${esc(it.remark || '').replace(/\n/g, '<br>')}</td></tr>`;
     }).join('')}</tbody></table>`;
+}
+function trackBlocks(items) {
+  const { updDate } = trackInfo(items);
+  return [`<div style="display:flex;justify-content:space-between;align-items:baseline;border:1px solid #000;border-bottom:none;padding:4px 10px"><b style="font-size:20px;flex:1;text-align:center">機電列管追蹤項目</b><b style="font-size:18px">更新日期${roc(updDate)}</b></div>`,
+    { brk: true, h: trackTable(items, true) },
+    `<div class="small" style="margin-top:4px">黃底／橘底為 ${roc(updDate)} 更新的內容；紅字為已逾首次承諾日。</div>`];
+}
+async function viewItems() {
+  S.cur = null; setHeader('機電列管追蹤', null); mainTabs('items'); markSaved('');
+  const items = (await DB.all('items')).filter(x => x.status !== '取消').sort(itemSort);
+  const { upd, updDate } = trackInfo(items);
   const open = items.filter(i => !CLOSED.includes(i.status));
+  const hl = (it, f) => it.hl && it.hl[f] === updDate;
   $('#app').innerHTML = `
-    <div class="card"><b>統計至 ${roc(today())}</b><div class="muted">共 ${items.length} 項；未完成 ${open.length} 項；已逾承諾日 ${open.filter(x => itemCalc(x).overdue).length} 項；累計延期 ${items.reduce((s, x) => s + (x.postpones || 0), 0)} 次。<br>事項內容請在各次會勘紀錄中修改。</div>
-    <div class="row" style="margin-top:8px"><button class="btn pri" id="pdfI">📄 產生 PDF</button><button class="btn" id="prI">🖨 列印</button></div></div>
-    <div class="scrollx">${tableHTML(false)}</div>`;
-  const sumBlocks = () => [`<h1>${esc(S.settings.project)}</h1><div class="sub" style="font-size:16px;font-weight:700">機電工程（${esc(S.settings.vendor)}）承諾事項延宕追蹤總表</div>
-    <div class="sub">統計日期：${roc(today())}｜共 ${items.length} 項，未完成 ${open.length} 項，累計延期 ${items.reduce((s, x) => s + (x.postpones || 0), 0)} 次</div>`,
-    { brk: true, h: tableHTML(true) },
-    `<div class="small">註：資料來源為各次定期會勘紀錄（含各方簽認）。</div>`];
-  const sumName = `${rocC(today())}_可曜機電延宕追蹤總表`;
-  $('#prI').onclick = () => doPrint(pages(sumBlocks()), sumName);
-  $('#pdfI').onclick = () => makePDF(sumBlocks(), sumName);
+    <div class="card"><b>機電列管追蹤項目　更新日期 ${roc(updDate)}</b>
+      <div class="muted">共 ${items.length} 項，未完成 ${open.length} 項，已逾承諾日 ${open.filter(x => itemCalc(x).overdue).length} 項，累計延期 ${items.reduce((a, x) => a + (x.postpones || 0), 0)} 次${upd ? `<br>最後更新：${fmtDT(upd)}` : ''}</div>
+      <div class="row" style="margin-top:8px"><button class="btn pri" id="pdfI">📄 PDF</button><button class="btn grn" id="xlsI">📊 Excel</button><button class="btn" id="prI">🖨 列印</button></div></div>
+    <button class="btn big" id="addIt" style="margin-bottom:12px">＋ 新增列管事項</button>
+    ${items.map((it, k) => {
+      const c = itemCalc(it), late = c.delay > 0 || c.overdue;
+      return `<div class="card entry ${it.status === '已完成' ? 'done' : c.overdue ? 'overdue' : it.status === '施工中' ? 'prog' : ''}" data-id="${it.id}" style="cursor:pointer">
+        <div class="hd"><div class="no">${k + 1}.</div><div style="flex:1"><b>${esc(itemName(it))}</b>
+          <div style="margin-top:4px">${it.status === '已完成' ? '<span class="tag grn">已完成</span>' : `<span class="tag">${esc(it.status || '未開始')}</span>`}
+          ${it.postpones ? `<span class="tag org">延期 ${it.postpones} 次</span>` : ''}${c.overdue ? `<span class="tag red">已逾承諾日 ${days(it.latestPromise, today())} 天</span>` : ''}</div></div></div>
+        <div class="muted" style="margin-top:6px">首次 ${roc(it.firstPromise) || '－'}｜前次 ${prevText(it) || '－'}｜本次 <b style="${late ? 'color:var(--red)' : ''}${hl(it, 'promise') ? ';background:#fff27a' : ''}">${roc(it.latestPromise) || '－'}</b></div>
+        <div style="margin-top:6px;padding:6px 8px;border-radius:8px;${hl(it, 'progress') || hl(it, 'status') ? 'background:#fde3c4' : 'background:#f3f5f8'}"><span class="muted">辦理情形：</span>${esc(progressText(it)) || '－'}</div>
+        ${it.remark ? `<div style="margin-top:6px;padding:6px 8px;border-radius:8px;${hl(it, 'remark') ? 'background:#fff6b3' : 'background:#f3f5f8'}"><span class="muted">約再幾天完成：</span>${esc(it.remark)}</div>` : ''}
+        <div class="muted" style="margin-top:6px;font-size:12px">${it.lastUpdate ? `最後更新 ${fmtDT(it.lastUpdate)}${it.lastBy ? '（' + esc(it.lastBy) + '）' : ''}` : ''}　<b style="color:var(--pri)">點此更新進度 ›</b></div>
+      </div>`;
+    }).join('') || '<div class="card muted">尚無列管事項</div>'}
+    <div class="scrollx" style="margin-top:8px"><div class="muted" style="margin:4px">表格預覽（與 PDF／Excel 相同）</div>${trackTable(items, false)}</div>`;
+  $$('.entry[data-id]').forEach(el => el.onclick = () => editItem(items.find(x => x.id === el.dataset.id)));
+  $('#addIt').onclick = () => editItem(null);
+  const name = `${rocC(updDate)}_機電列管追蹤項目`;
+  $('#prI').onclick = () => doPrint(pages(trackBlocks(items)), name);
+  $('#pdfI').onclick = () => makePDF(trackBlocks(items), name);
+  $('#xlsI').onclick = () => trackXLSX(items, name);
+}
+// 更新進度／新增列管事項
+function editItem(it) {
+  const isNew = !it, M = $('#modal'); M.classList.add('on');
+  it = it || { id: uid(), title: '', area: '', cat: '', status: '未開始', firstPromise: '', latestPromise: '', postpones: 0, history: {}, createdAt: Date.now(), no: Date.now() };
+  M.innerHTML = `<div class="sheet"><div class="inner">
+    <div class="row" style="margin-bottom:8px"><b style="flex:1;font-size:18px">${isNew ? '新增列管事項' : '更新進度'}</b><button class="btn" id="eiX" style="flex:0 0 auto">✕</button></div>
+    <div class="card">
+      ${isNew ? `<label class="f">事項內容</label><input id="eiTitle" placeholder="例：B1機車停車場燈槽電燈安裝">
+        <div class="row"><div><label class="f">區域</label>${locSelect('id="eiArea"', '', '')}</div>
+        <div><label class="f">類別</label><select id="eiCat"><option></option>${CATS.map(x => `<option>${x}</option>`).join('')}</select></div></div>
+        <label class="f">首次承諾日</label><input type="date" id="eiFirst">` :
+      `<b>${esc(itemName(it))}</b><div class="muted" style="margin-top:4px">首次承諾 ${roc(it.firstPromise) || '－'}｜目前承諾 ${roc(it.latestPromise) || '－'}${it.postpones ? `｜已延期 ${it.postpones} 次` : ''}</div>
+        <label class="f">本次承諾日（廠商改期才修改）</label><input type="date" id="eiPromise" value="${esc(it.latestPromise || '')}">`}
+      <label class="f">辦理情形</label>
+      <select id="eiStatus">${STATUS.map(x => `<option ${x === it.status ? 'selected' : ''}>${x}</option>`).join('')}</select>
+      <div id="eiDoneRow" style="display:${it.status === '已完成' ? '' : 'none'}"><label class="f">完成日期</label><input type="date" id="eiDone" value="${esc(it.doneDate || today())}"></div>
+      <label class="f">辦理情形說明（例：監造尚未核定型式、因線槽工提前改為10/23點交）</label>
+      <textarea id="eiProg" style="min-height:70px">${esc(it.progress || '')}</textarea>
+      <label class="f">約再幾天完成（例：預計10/26完成、115/10/16已確認）</label>
+      <textarea id="eiRemark" style="min-height:60px">${esc(it.remark || '')}</textarea>
+    </div>
+    <button class="btn big pri" id="eiSave">儲存</button>
+    ${!isNew && (it.updates || []).length ? `<div class="card" style="margin-top:12px"><b>更新紀錄</b><div class="muted" style="margin-top:4px">${it.updates.slice().reverse().map(u => `${fmtDT(u.t)}（${esc(u.by || '')}）：${esc(u.text)}`).join('<br>')}</div></div>` : ''}
+  </div></div>`;
+  $('#eiX').onclick = closeModal;
+  $('#eiStatus').onchange = e => { $('#eiDoneRow').style.display = e.target.value === '已完成' ? '' : 'none'; };
+  $('#eiSave').onclick = async () => {
+    const d = today(), by = (Sync.dev && Sync.dev.name) || '', ch = [];
+    const cur = isNew ? it : (await DB.get('items', it.id)) || it;
+    cur.hl = cur.hl || {}; cur.updates = cur.updates || [];
+    if (isNew) {
+      const title = $('#eiTitle').value.trim(); if (!title) return alert('請輸入事項內容');
+      Object.assign(cur, { title, area: $('#eiArea').value === '__add' ? '' : $('#eiArea').value, cat: $('#eiCat').value, firstPromise: $('#eiFirst').value, latestPromise: $('#eiFirst').value });
+      ch.push('新增列管事項');
+    } else {
+      const np = $('#eiPromise').value;
+      if (np !== (cur.latestPromise || '')) {
+        if (cur.latestPromise && np > cur.latestPromise) { cur.postpones = (cur.postpones || 0) + 1; ch.push(`承諾日 ${roc(cur.latestPromise)} 延到 ${roc(np)}`); }
+        else ch.push(`承諾日改為 ${roc(np)}`);
+        cur.prevPromise = cur.latestPromise || ''; cur.latestPromise = np; if (!cur.firstPromise) cur.firstPromise = np; cur.hl.promise = d;
+      }
+    }
+    const st = $('#eiStatus').value, prog = $('#eiProg').value.trim(), rem = $('#eiRemark').value.trim();
+    if (st !== cur.status || isNew) { if (!isNew) ch.push(`辦理情形 ${cur.status} → ${st}`); cur.status = st; cur.hl.status = d; }
+    cur.doneDate = st === '已完成' ? ($('#eiDone').value || d) : '';
+    if (prog !== (cur.progress || '')) { cur.progress = prog; cur.hl.progress = d; if (prog) ch.push(`說明：${prog}`); }
+    if (rem !== (cur.remark || '')) { cur.remark = rem; cur.hl.remark = d; if (rem) ch.push(`約再幾天完成：${rem}`); }
+    if (!ch.length) return closeModal();
+    cur.lastUpdate = Date.now(); cur.lastBy = by;
+    cur.updates.push({ t: cur.lastUpdate, by, text: ch.join('；') });
+    await DB.put('items', cur); closeModal(); toast('已更新'); viewItems();
+  };
+}
+async function trackXLSX(items, name) {
+  busy('產生 Excel 中…');
+  try {
+    await loadLib('exceljs.min.js');
+    const wb = new ExcelJS.Workbook(); wb.creator = S.settings.gc;
+    const ws = wb.addWorksheet('機電列管追蹤項目');
+    const W = [6, 40, 12, 12, 12, 26, 20];
+    ws.columns = W.map(w => ({ width: w }));
+    xlPage(ws);
+    const { updDate } = trackInfo(items);
+    xlBox(ws, 1, 0, 4, '機電列管追蹤項目', { size: 18, h: 'center' });
+    xlBox(ws, 1, 5, 6, `更新日期${roc(updDate)}`, { size: 16, h: 'center' });
+    ws.getRow(1).height = 30;
+    ['項次', '事項內容', '首次承諾日', '前次承諾日', '本次承諾日', '辦理情形(進行中、未開始、已完成)', '約再幾天完成'].forEach((h, k) => xlBox(ws, 2, k, k, h, { bold: true, h: 'center' }));
+    ws.getRow(2).height = 32;
+    const fill = c => ({ type: 'pattern', pattern: 'solid', fgColor: { argb: c } });
+    items.forEach((it, k) => {
+      const r = k + 3, c = itemCalc(it), late = c.delay > 0 || c.overdue, hl = f => it.hl && it.hl[f] === updDate;
+      const vals = [k + 1, itemName(it), roc(it.firstPromise), prevText(it), roc(it.latestPromise), progressText(it), it.remark || ''];
+      vals.forEach((v, n) => xlBox(ws, r, n, n, v, { h: n === 0 ? 'right' : 'left', red: n === 4 && late, bold: (n === 4 && late) || (n === 5 && it.status === '已完成') }));
+      if (hl('promise')) ws.getCell('E' + r).fill = fill('FFFFF27A');
+      if (hl('progress') || hl('status')) { ws.getCell('F' + r).fill = fill('FFF8C471'); ws.getCell('F' + r).font = { name: XF, size: 10, bold: true }; }
+      if (hl('remark')) { ws.getCell('G' + r).fill = fill('FFFFF27A'); ws.getCell('G' + r).font = { name: XF, size: 10, bold: true }; }
+      ws.getRow(r).height = Math.max(...vals.map((v, n) => xlLines(v, W[n]))) * 14 + 10;
+    });
+    ws.views = [{ showGridLines: false, state: 'frozen', ySplit: 2 }];
+    const buf = await wb.xlsx.writeBuffer();
+    fileReady(new File([buf], name + '.xlsx', { type: XL_TYPE }), 'Excel', `共 ${items.length} 項`);
+  } catch (e) { console.error(e); closeModal(); alert('Excel 產生失敗：' + e.message); }
 }
 
 /* ========== 設定 / 備份 ========== */
@@ -1599,7 +1747,7 @@ function askIdentity(change) {
 }
 
 /* ========== 版本更新 ========== */
-const APP_VER = '2.0';
+const APP_VER = '2.1';
 async function checkUpdate() {
   const msg = t => { const m = $('#updMsg'); if (m) m.textContent = t; };
   if (!navigator.onLine) return msg('目前離線，請在有網路的地方再按一次');
