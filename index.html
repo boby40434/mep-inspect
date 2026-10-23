@@ -171,7 +171,11 @@ const days = (a, b) => Math.round((new Date(b + 'T00:00') - new Date(a + 'T00:00
 function nextThu(from = today()) { const d = new Date(from + 'T00:00'); const add = (4 - d.getDay() + 7) % 7; d.setDate(d.getDate() + add); return ymd(d); }
 function toast(msg, ms = 2200) { const t = document.createElement('div'); t.className = 'toast'; t.textContent = msg; document.body.appendChild(t); setTimeout(() => t.remove(), ms); }
 
-const STATUS = ['未開始', '施工中', '延宕', '待確認', '已完成', '取消'];
+const STATUS = ['未開始', '進行中', '延宕', '待確認', '已完成', '取消'];
+// 舊資料的「施工中」一律視為「進行中」
+const normStatus = s => s === '施工中' ? '進行中' : s;
+// 下拉選單：已定稿的舊紀錄若是舊名稱，仍照原樣顯示
+const statusOpts = (cur, list = STATUS) => (list.includes(cur) || !cur ? list : [...list, cur]).map(x => `<option ${x === cur ? 'selected' : ''}>${x}</option>`).join('');
 const CLOSED = ['已完成', '取消'];
 const CATS = ['電氣', '弱電', '給排水', '消防', '建築配合', '材料進場', '其他'];
 const LOCS = ['停車場B1', '停車場B2', '旅服中心1F', '旅服中心2F', '禮堂1F', '禮堂2F'];
@@ -592,7 +596,7 @@ function tabItems(app, lockMsg) {
   const i = S.cur, ro = RO();
   const cards = i.entries.map((e, k) => {
     const c = entryCalc(e, i.date);
-    const cls = e.status === '已完成' ? 'done' : c.overdue ? 'overdue' : e.status === '施工中' ? 'prog' : '';
+    const cls = e.status === '已完成' ? 'done' : c.overdue ? 'overdue' : ['施工中', '進行中'].includes(e.status) ? 'prog' : '';
     const nph = S.photos.filter(p => p.itemId === e.itemId).length;
     return `<div class="card entry ${cls}" data-k="${k}">
       <div class="hd"><div class="no">${k + 1}.</div><div style="flex:1">
@@ -619,7 +623,7 @@ function tabItems(app, lockMsg) {
         <div style="flex:1 1 100%">${c.first ? (c.delay ? `<b style="color:var(--red)">較首次承諾日 ${roc(c.first)} 逾期 ${c.delay} 天完成</b>` : `<b style="color:var(--grn)">於首次承諾日 ${roc(c.first)} 前完成</b>`) : '<span class="muted">（無首次承諾日，無法計算逾期天數）</span>'}</div>
         ${ro ? '' : '<button class="btn" data-act="undone" style="flex:0 0 auto">取消完成</button>'}
       </div>` : `<div class="row">
-        <div><label class="f">本次狀態</label><select data-e="status" ${ro}>${STATUS.filter(x => x !== '已完成').map(x => `<option ${x === e.status ? 'selected' : ''}>${x}</option>`).join('')}</select></div>
+        <div><label class="f">本次狀態</label><select data-e="status" ${ro}>${statusOpts(e.status, STATUS.filter(x => x !== '已完成'))}</select></div>
         ${ro ? '' : '<button class="btn grn" data-act="done" style="flex:0 0 auto;align-self:flex-end">✅ 已完成</button>'}
       </div>`}
       <label class="f">本次現場說明（廠商說法、延宕原因、要求事項）</label>
@@ -669,7 +673,7 @@ function tabItems(app, lockMsg) {
       if (a === 'photo') { pickPhotos(true, e.itemId); return; }
       if (a === 'done' || a === 'undone') e._editedAt = Date.now();
       if (a === 'done') { e.status = '已完成'; e.doneDate = i.date; e._lastStatus = '已完成'; addLog(`事項「${e.title}」標記已完成`); }
-      if (a === 'undone') { if (!confirm('取消「已完成」？')) return; e.status = '施工中'; e.doneDate = ''; e._lastStatus = '施工中'; addLog(`事項「${e.title}」取消已完成`); }
+      if (a === 'undone') { if (!confirm('取消「已完成」？')) return; e.status = '進行中'; e.doneDate = ''; e._lastStatus = '進行中'; addLog(`事項「${e.title}」取消已完成`); }
       await saveNow(); tabItems(app, lockMsg);
     });
   });
@@ -1248,7 +1252,7 @@ function importTrackXLSX(i, done) {
         const np = parseXlDate(row.getCell(7).value, i.date);
         if (np === null) warns.push(`「${e.title}」新承諾日格式無法辨識，已略過`);
         else if (np && np !== e.promise) ch.set.promise = np;
-        const stt = cellText(row.getCell(8).value).trim();
+        const stt = normStatus(cellText(row.getCell(8).value).trim());
         if (stt && !STATUS.includes(stt)) warns.push(`「${e.title}」狀態「${stt}」不在選項內，已略過`);
         else if (stt && stt !== e.status) ch.set.status = stt;
         const dd = parseXlDate(row.getCell(9).value, i.date);
@@ -1325,7 +1329,7 @@ async function viewItems() {
     <button class="btn big" id="addIt" style="margin-bottom:12px">＋ 新增列管事項</button>
     ${items.map((it, k) => {
       const c = itemCalc(it), late = c.delay > 0 || c.overdue;
-      return `<div class="card entry ${it.status === '已完成' ? 'done' : c.overdue ? 'overdue' : it.status === '施工中' ? 'prog' : ''}" data-id="${it.id}" style="cursor:pointer">
+      return `<div class="card entry ${it.status === '已完成' ? 'done' : c.overdue ? 'overdue' : ['施工中', '進行中'].includes(it.status) ? 'prog' : ''}" data-id="${it.id}" style="cursor:pointer">
         <div class="hd"><div class="no">${k + 1}.</div><div style="flex:1"><b>${esc(itemName(it))}</b>
           <div style="margin-top:4px">${it.status === '已完成' ? '<span class="tag grn">已完成</span>' : `<span class="tag">${esc(it.status || '未開始')}</span>`}
           ${it.postpones ? `<span class="tag org">延期 ${it.postpones} 次</span>` : ''}${c.overdue ? `<span class="tag red">已逾承諾日 ${days(it.latestPromise, today())} 天</span>` : ''}</div></div></div>
@@ -1357,7 +1361,7 @@ function editItem(it) {
       `<b>${esc(itemName(it))}</b><div class="muted" style="margin-top:4px">首次承諾 ${roc(it.firstPromise) || '－'}｜目前承諾 ${roc(it.latestPromise) || '－'}${it.postpones ? `｜已延期 ${it.postpones} 次` : ''}</div>
         <label class="f">本次承諾日（廠商改期才修改）</label><input type="date" id="eiPromise" value="${esc(it.latestPromise || '')}">`}
       <label class="f">辦理情形</label>
-      <select id="eiStatus">${STATUS.map(x => `<option ${x === it.status ? 'selected' : ''}>${x}</option>`).join('')}</select>
+      <select id="eiStatus">${statusOpts(normStatus(it.status))}</select>
       <div id="eiDoneRow" style="display:${it.status === '已完成' ? '' : 'none'}"><label class="f">完成日期</label><input type="date" id="eiDone" value="${esc(it.doneDate || today())}"></div>
       <label class="f">辦理情形說明（例：監造尚未核定型式、因線槽工提前改為10/23點交）</label>
       <textarea id="eiProg" style="min-height:70px">${esc(it.progress || '')}</textarea>
@@ -1605,7 +1609,7 @@ const Sync = {
     } catch (e) { this.err = e.message; if (manual || /通行碼/.test(e.message)) toast('同步失敗：' + e.message, 4000); if (/通行碼/.test(e.message)) askIdentity(true); }
     finally {
       this.busy = false; await this.count(); this.show();
-      if (this.changed) refreshAfterSync();
+      if (this.changed) { await migrateStatus(); refreshAfterSync(); }
       if (this.overrode) toast(`有 ${this.overrode} 筆紀錄已被其他人更新，已改用最新版本`, 4000);
       if (this.again) { this.again = false; this.soon(1000); }
     }
@@ -1746,8 +1750,18 @@ function askIdentity(change) {
   $('#idSkip').onclick = async () => { if (!change) { Sync.dev.skip = true; await saveDev(); } closeModal(); };
 }
 
+async function migrateStatus() {
+  for (const it of await DB.all('items')) if (it.status === '施工中') { it.status = '進行中'; await DB.put('items', it); }
+  for (const i of await DB.all('insp')) {
+    if (i.locked || !i.entries.some(e => e.status === '施工中')) continue;
+    i.entries.forEach(e => { if (e.status === '施工中') e.status = '進行中'; });
+    await DB.put('insp', i);
+    if (S.cur && S.cur.id === i.id) S.cur = null;
+  }
+}
+
 /* ========== 版本更新 ========== */
-const APP_VER = '2.1';
+const APP_VER = '2.2';
 async function checkUpdate() {
   const msg = t => { const m = $('#updMsg'); if (m) m.textContent = t; };
   if (!navigator.onLine) return msg('目前離線，請在有網路的地方再按一次');
@@ -1781,6 +1795,7 @@ function netState() { Sync.show(); if (navigator.onLine) Sync.soon(500); }
   S.settings = Object.assign({}, DEFAULT_SETTINGS, await DB.get('kv', 'settings'));
   await DB.put('kv', S.settings);
   Sync.dev = (await DB.get('kv', 'device')) || { key: 'device' };
+  await migrateStatus();
   try { if (navigator.storage && navigator.storage.persist) await navigator.storage.persist(); } catch (e) { }
   window.addEventListener('hashchange', route);
   window.addEventListener('online', netState); window.addEventListener('offline', netState); netState();
