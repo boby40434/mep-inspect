@@ -1460,9 +1460,6 @@ async function viewSettings() {
     ${!Sync.url() ? '<div class="muted">尚未設定雲端網址（由管理員設定）。</div>' : Sync.dev.code ? `<div class="muted">使用者：<b>${esc(Sync.dev.name)}</b>｜裝置：${esc(Sync.dev.deviceId)}<br>狀態：<span id="syncSt">${esc(Sync.label())}</span><br>上次同步：${Sync.dev.lastSync ? fmtDT(Sync.dev.lastSync) : '尚未'}</div>
       <div class="row" style="margin-top:8px"><button class="btn pri" id="syncNow">🔄 立即同步</button><button class="btn" id="syncWho">更換使用者</button></div>` :
       `<div class="muted">此裝置尚未連線雲端，資料只存在本機。</div><button class="btn pri" id="syncWho" style="margin-top:8px">連線雲端</button>`}
-    <details style="margin-top:10px"><summary class="muted">管理員設定</summary>
-      <label class="f">雲端後台網址（Apps Script 網頁應用程式網址）</label>
-      <input id="syncUrl" value="${esc(S.settings.syncUrl || '')}" placeholder="${esc(SYNC_URL_DEFAULT || 'https://script.google.com/macros/s/…/exec')}"></details>
   </div>
   <div class="card"><h3>備份（重要）</h3>
     <div class="muted">${Sync.enabled() ? '已啟用雲端同步，資料會自動存到雲端。備份檔可作為額外保險。' : '所有資料只存在這支手機的瀏覽器內，換手機、清除瀏覽資料或刪除 App 都會遺失。請定期匯出備份檔，存到電腦或雲端。'}<br>${est}｜${persisted ? '✅ 已啟用永久儲存' : '⚠️ 尚未取得永久儲存權限'}<br>上次備份：${st.lastBackup ? fmtDT(st.lastBackup) : '從未'}</div>
@@ -1491,7 +1488,7 @@ async function viewSettings() {
   $('#chkUpd').onclick = checkUpdate;
   if ($('#syncNow')) $('#syncNow').onclick = async () => { await Sync.run(true); viewSettings(); };
   if ($('#syncWho')) $('#syncWho').onclick = () => askIdentity(true);
-  $('#syncUrl').onchange = async e => { S.settings.syncUrl = e.target.value.trim(); await DB.put('kv', S.settings); toast('已儲存雲端網址'); viewSettings(); };
+
 }
 async function exportBackup() {
   toast('打包中…');
@@ -1761,7 +1758,7 @@ async function migrateStatus() {
 }
 
 /* ========== 版本更新 ========== */
-const APP_VER = '2.2';
+const APP_VER = '2.3';
 async function checkUpdate() {
   const msg = t => { const m = $('#updMsg'); if (m) m.textContent = t; };
   if (!navigator.onLine) return msg('目前離線，請在有網路的地方再按一次');
