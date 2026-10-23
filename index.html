@@ -1301,9 +1301,9 @@ function trackInfo(items) {
 function trackTable(items, forPrint) {
   const { updDate } = trackInfo(items);
   const hl = (it, f) => it.hl && it.hl[f] === updDate;
-  return `<table class="${forPrint ? 'trk' : 'tb trk'}"><thead><tr><th style="width:4%">項次</th><th style="width:30%">事項內容</th><th style="width:10%">首次承諾日</th><th style="width:10%">前次承諾日</th><th style="width:10%">本次承諾日</th><th style="width:20%">辦理情形<br><span style="font-weight:400">(進行中、未開始、已完成)</span></th><th style="width:16%">約再幾天完成</th></tr></thead><tbody>
+  return `<table class="${forPrint ? 'trk' : 'tb trk'}"><thead><tr><th style="width:4%">項次</th><th style="width:30%">事項內容</th><th style="width:10%">首次列管日</th><th style="width:10%">前次承諾日</th><th style="width:10%">本次承諾日</th><th style="width:20%">辦理情形<br><span style="font-weight:400">(進行中、未開始、已完成)</span></th><th style="width:16%">約再幾天完成</th></tr></thead><tbody>
     ${items.map((it, k) => {
-      const c = itemCalc(it), late = c.delay > 0 || c.overdue;
+      const c = itemCalc(it), late = c.overdue || (it.postpones || 0) > 0;
       return `<tr><td style="text-align:center">${k + 1}</td><td>${esc(itemName(it))}</td><td>${roc(it.firstPromise)}</td><td>${prevText(it)}</td>
         <td class="${late ? 'red' : ''}" style="${late ? 'color:#c00000;font-weight:700' : ''}${hl(it, 'promise') ? ';background:#fff27a' : ''}">${roc(it.latestPromise)}</td>
         <td style="${it.status === '已完成' ? 'font-weight:700;' : ''}${hl(it, 'progress') || hl(it, 'status') ? 'background:#f8c471;font-weight:700' : ''}">${esc(progressText(it)).replace(/\n/g, '<br>')}</td>
@@ -1314,7 +1314,7 @@ function trackBlocks(items) {
   const { updDate } = trackInfo(items);
   return [`<div style="display:flex;justify-content:space-between;align-items:baseline;border:1px solid #000;border-bottom:none;padding:4px 10px"><b style="font-size:20px;flex:1;text-align:center">機電列管追蹤項目</b><b style="font-size:18px">更新日期${roc(updDate)}</b></div>`,
     { brk: true, h: trackTable(items, true) },
-    `<div class="small" style="margin-top:4px">黃底／橘底為 ${roc(updDate)} 更新的內容；紅字為已逾首次承諾日。</div>`];
+    `<div class="small" style="margin-top:4px">黃底／橘底為 ${roc(updDate)} 更新的內容；紅字為已逾承諾日或曾延期。</div>`];
 }
 async function viewItems() {
   S.cur = null; setHeader('機電列管追蹤', null); mainTabs('items'); markSaved('');
@@ -1328,12 +1328,12 @@ async function viewItems() {
       <div class="row" style="margin-top:8px"><button class="btn pri" id="pdfI">📄 PDF</button><button class="btn grn" id="xlsI">📊 Excel</button><button class="btn" id="prI">🖨 列印</button></div></div>
     <button class="btn big" id="addIt" style="margin-bottom:12px">＋ 新增列管事項</button>
     ${items.map((it, k) => {
-      const c = itemCalc(it), late = c.delay > 0 || c.overdue;
+      const c = itemCalc(it), late = c.overdue || (it.postpones || 0) > 0;
       return `<div class="card entry ${it.status === '已完成' ? 'done' : c.overdue ? 'overdue' : ['施工中', '進行中'].includes(it.status) ? 'prog' : ''}" data-id="${it.id}" style="cursor:pointer">
         <div class="hd"><div class="no">${k + 1}.</div><div style="flex:1"><b>${esc(itemName(it))}</b>
           <div style="margin-top:4px">${it.status === '已完成' ? '<span class="tag grn">已完成</span>' : `<span class="tag">${esc(it.status || '未開始')}</span>`}
           ${it.postpones ? `<span class="tag org">延期 ${it.postpones} 次</span>` : ''}${c.overdue ? `<span class="tag red">已逾承諾日 ${days(it.latestPromise, today())} 天</span>` : ''}</div></div></div>
-        <div class="muted" style="margin-top:6px">首次 ${roc(it.firstPromise) || '－'}｜前次 ${prevText(it) || '－'}｜本次 <b style="${late ? 'color:var(--red)' : ''}${hl(it, 'promise') ? ';background:#fff27a' : ''}">${roc(it.latestPromise) || '－'}</b></div>
+        <div class="muted" style="margin-top:6px">首次列管 ${roc(it.firstPromise) || '－'}｜前次 ${prevText(it) || '－'}｜本次 <b style="${late ? 'color:var(--red)' : ''}${hl(it, 'promise') ? ';background:#fff27a' : ''}">${roc(it.latestPromise) || '－'}</b></div>
         <div style="margin-top:6px;padding:6px 8px;border-radius:8px;${hl(it, 'progress') || hl(it, 'status') ? 'background:#fde3c4' : 'background:#f3f5f8'}"><span class="muted">辦理情形：</span>${esc(progressText(it)) || '－'}</div>
         ${it.remark ? `<div style="margin-top:6px;padding:6px 8px;border-radius:8px;${hl(it, 'remark') ? 'background:#fff6b3' : 'background:#f3f5f8'}"><span class="muted">約再幾天完成：</span>${esc(it.remark)}</div>` : ''}
         <div class="muted" style="margin-top:6px;font-size:12px">${it.lastUpdate ? `最後更新 ${fmtDT(it.lastUpdate)}${it.lastBy ? '（' + esc(it.lastBy) + '）' : ''}` : ''}　<b style="color:var(--pri)">點此更新進度 ›</b></div>
@@ -1357,8 +1357,9 @@ function editItem(it) {
       ${isNew ? `<label class="f">事項內容</label><input id="eiTitle" placeholder="例：B1機車停車場燈槽電燈安裝">
         <div class="row"><div><label class="f">區域</label>${locSelect('id="eiArea"', '', '')}</div>
         <div><label class="f">類別</label><select id="eiCat"><option></option>${CATS.map(x => `<option>${x}</option>`).join('')}</select></div></div>
-        <label class="f">首次承諾日</label><input type="date" id="eiFirst">` :
-      `<b>${esc(itemName(it))}</b><div class="muted" style="margin-top:4px">首次承諾 ${roc(it.firstPromise) || '－'}｜目前承諾 ${roc(it.latestPromise) || '－'}${it.postpones ? `｜已延期 ${it.postpones} 次` : ''}</div>
+        <div class="row"><div><label class="f">首次列管日</label><input type="date" id="eiFirst" value="${today()}"></div>
+        <div><label class="f">承諾完成日（尚未承諾可留空）</label><input type="date" id="eiPromiseNew"></div></div>` :
+      `<b>${esc(itemName(it))}</b><div class="muted" style="margin-top:4px">首次列管 ${roc(it.firstPromise) || '－'}｜目前承諾 ${roc(it.latestPromise) || '－'}${it.postpones ? `｜已延期 ${it.postpones} 次` : ''}</div>
         <label class="f">本次承諾日（廠商改期才修改）</label><input type="date" id="eiPromise" value="${esc(it.latestPromise || '')}">`}
       <label class="f">辦理情形</label>
       <select id="eiStatus">${statusOpts(normStatus(it.status))}</select>
@@ -1379,7 +1380,7 @@ function editItem(it) {
     cur.hl = cur.hl || {}; cur.updates = cur.updates || [];
     if (isNew) {
       const title = $('#eiTitle').value.trim(); if (!title) return alert('請輸入事項內容');
-      Object.assign(cur, { title, area: $('#eiArea').value === '__add' ? '' : $('#eiArea').value, cat: $('#eiCat').value, firstPromise: $('#eiFirst').value, latestPromise: $('#eiFirst').value });
+      Object.assign(cur, { title, area: $('#eiArea').value === '__add' ? '' : $('#eiArea').value, cat: $('#eiCat').value, firstPromise: $('#eiFirst').value || today(), latestPromise: $('#eiPromiseNew').value });
       ch.push('新增列管事項');
     } else {
       const np = $('#eiPromise').value;
@@ -1413,11 +1414,11 @@ async function trackXLSX(items, name) {
     xlBox(ws, 1, 0, 4, '機電列管追蹤項目', { size: 18, h: 'center' });
     xlBox(ws, 1, 5, 6, `更新日期${roc(updDate)}`, { size: 16, h: 'center' });
     ws.getRow(1).height = 30;
-    ['項次', '事項內容', '首次承諾日', '前次承諾日', '本次承諾日', '辦理情形(進行中、未開始、已完成)', '約再幾天完成'].forEach((h, k) => xlBox(ws, 2, k, k, h, { bold: true, h: 'center' }));
+    ['項次', '事項內容', '首次列管日', '前次承諾日', '本次承諾日', '辦理情形(進行中、未開始、已完成)', '約再幾天完成'].forEach((h, k) => xlBox(ws, 2, k, k, h, { bold: true, h: 'center' }));
     ws.getRow(2).height = 32;
     const fill = c => ({ type: 'pattern', pattern: 'solid', fgColor: { argb: c } });
     items.forEach((it, k) => {
-      const r = k + 3, c = itemCalc(it), late = c.delay > 0 || c.overdue, hl = f => it.hl && it.hl[f] === updDate;
+      const r = k + 3, c = itemCalc(it), late = c.overdue || (it.postpones || 0) > 0, hl = f => it.hl && it.hl[f] === updDate;
       const vals = [k + 1, itemName(it), roc(it.firstPromise), prevText(it), roc(it.latestPromise), progressText(it), it.remark || ''];
       vals.forEach((v, n) => xlBox(ws, r, n, n, v, { h: n === 0 ? 'right' : 'left', red: n === 4 && late, bold: (n === 4 && late) || (n === 5 && it.status === '已完成') }));
       if (hl('promise')) ws.getCell('E' + r).fill = fill('FFFFF27A');
@@ -1758,7 +1759,7 @@ async function migrateStatus() {
 }
 
 /* ========== 版本更新 ========== */
-const APP_VER = '2.3';
+const APP_VER = '2.4';
 async function checkUpdate() {
   const msg = t => { const m = $('#updMsg'); if (m) m.textContent = t; };
   if (!navigator.onLine) return msg('目前離線，請在有網路的地方再按一次');
