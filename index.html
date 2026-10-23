@@ -87,6 +87,12 @@ table.tb th{background:#eef2f7;white-space:nowrap}
 .sigwrap{flex:1;position:relative;min-height:0;border:2px dashed #99a;border-radius:10px;background:#fff;overflow:hidden}
 .sigwrap canvas{position:absolute;inset:0;width:100%;height:100%;touch-action:none;display:block}
 @media (max-height:500px){.sigpad .sighd{flex-direction:row;justify-content:center;gap:12px;font-size:14px}.sigpad .btn{min-height:42px;padding:6px 12px}}
+.pinbox{position:relative;display:flex;gap:12px;justify-content:center;margin:18px 0 8px}
+.pinbox span{width:56px;height:64px;border:2px solid var(--line);border-radius:12px;background:#fff;display:flex;align-items:center;justify-content:center;font-size:30px;font-weight:700}
+.pinbox span.cur{border-color:var(--pri);box-shadow:0 0 0 3px rgba(31,58,95,.15)}
+.pinbox input{position:absolute;inset:0;width:100%;height:100%;opacity:0;font-size:16px;border:0;caret-color:transparent}
+.pinbox.err span{border-color:var(--red);animation:shake .3s}
+@keyframes shake{25%{transform:translateX(-6px)}75%{transform:translateX(6px)}}
 .toast{position:fixed;left:50%;bottom:90px;transform:translateX(-50%);background:#1b2430;color:#fff;padding:10px 16px;border-radius:20px;z-index:99;font-size:14px;max-width:90%}
 /* report */
 #print{display:none}
@@ -475,15 +481,37 @@ function bindFields(root) {
   }));
 }
 const DEL_PW = '7101';
+// 四格數字密碼（手機跳出數字鍵盤），輸入正確回傳 true，取消回傳 false
+function askPin(title, html, pin) {
+  return new Promise(resolve => {
+    const M = $('#modal'); M.classList.add('on');
+    M.innerHTML = `<div class="sheet" style="display:flex;align-items:flex-start;justify-content:center;padding-top:calc(env(safe-area-inset-top) + 60px)"><div class="card" style="max-width:380px;width:100%;text-align:center">
+      <h3>🔒 ${esc(title)}</h3><div class="muted">${html}</div>
+      <div style="margin-top:14px;font-weight:700">請輸入 4 位數密碼</div>
+      <div class="pinbox"><span></span><span></span><span></span><span></span>
+        <input id="pinIn" type="tel" inputmode="numeric" pattern="[0-9]*" maxlength="4" autocomplete="off" aria-label="密碼"></div>
+      <div id="pinMsg" style="color:var(--red);min-height:22px;font-size:14px"></div>
+      <button class="btn big" id="pinCancel">取消</button></div></div>`;
+    const inp = $('#pinIn'), box = $('.pinbox', M), cells = $$('.pinbox span', M);
+    const show = () => { const v = inp.value; cells.forEach((c, k) => { c.textContent = k < v.length ? '●' : ''; c.classList.toggle('cur', k === Math.min(v.length, 3)); }); };
+    const end = v => { closeModal(); resolve(v); };
+    inp.oninput = () => {
+      inp.value = inp.value.replace(/\D/g, '').slice(0, 4); show(); $('#pinMsg').textContent = ''; box.classList.remove('err');
+      if (inp.value.length === 4) {
+        if (inp.value === pin) return end(true);
+        box.classList.add('err'); $('#pinMsg').textContent = '密碼錯誤，請重新輸入';
+        setTimeout(() => { inp.value = ''; show(); }, 350);
+      }
+    };
+    $('#pinCancel').onclick = () => end(false);
+    show(); inp.focus();
+  });
+}
 async function deleteInsp(id) {
   const i = await DB.get('insp', id); if (!i) return false;
   const photos = await DB.photosOf(id);
-  if (!confirm(`確定刪除「第${i.seq}次 ${roc(i.date)}」整筆會勘紀錄？
-（含事項紀錄、${photos.length} 張照片${i.locked ? '，此紀錄已定稿' : ''}）
-
-刪除後無法復原。`)) return false;
-  const pw = prompt('請輸入刪除密碼'); if (pw === null) return false;
-  if (pw.trim() !== DEL_PW) { alert('密碼錯誤，未刪除。'); return false; }
+  const ok = await askPin('刪除會勘紀錄', `第${i.seq}次 ${roc(i.date)}（${wk(i.date)}）<br>含事項紀錄、${photos.length} 張照片${i.locked ? '，<b>此紀錄已定稿</b>' : ''}<br><b style="color:var(--red)">刪除後無法復原</b>`, DEL_PW);
+  if (!ok) return false;
   if (saveTimer && S.cur && S.cur.id === id) { clearTimeout(saveTimer); saveTimer = null; }
   for (const ph of photos) await DB.del('photos', ph.id);
   for (const e of i.entries) {
@@ -943,11 +971,12 @@ function tabReport(app, lockMsg) {
   app.innerHTML = lockMsg + `
     ${i.locked ? '' : '<div class="warn">此紀錄尚未定稿，報表會標示「草稿」。</div>'}
     <button class="btn big pri" id="pdf">📄 產生 PDF（可直接傳 LINE／Email）</button>
-    <button class="btn" id="pr" style="width:100%;margin:8px 0 12px">🖨 列印</button>
+    <div class="row" style="margin:8px 0 12px"><button class="btn grn" id="xls">📊 產生 Excel</button><button class="btn" id="pr">🖨 列印</button></div>
     <div class="rptwrap">${reportHTML(i, S.photos)}</div>`;
   const fname = `${rocC(i.date)}_赤崁樓機電會勘紀錄_第${i.seq}次${i.locked ? '' : '_草稿'}`;
   $('#pr').onclick = () => doPrint(reportHTML(i, S.photos), fname);
   $('#pdf').onclick = () => makePDF(reportBlocks(i, S.photos), fname);
+  $('#xls').onclick = () => makeXLSX(i, S.photos, fname);
 }
 async function doPrint(html, title) {
   const P = $('#print'); P.innerHTML = html;
@@ -1031,19 +1060,184 @@ async function makePDF(blocks, name) {
       cv.width = cv.height = 0;
     }
     const blob = pdf.output('blob');
-    const file = new File([blob], name + '.pdf', { type: 'application/pdf' });
-    const canShare = navigator.canShare && navigator.canShare({ files: [file] });
-    M.innerHTML = `<div class="sheet" style="display:flex;align-items:center;justify-content:center"><div class="card" style="max-width:420px;width:100%">
-      <h3>✅ PDF 已產生</h3><div class="muted" style="word-break:break-all">${esc(file.name)}<br>共 ${pgs.length} 頁，${(blob.size / 1048576).toFixed(1)} MB</div>
-      ${canShare ? '<button class="btn big pri" id="pdfShare" style="margin-top:12px">📤 分享（LINE／Email／存到檔案）</button>' : ''}
-      <button class="btn big ${canShare ? '' : 'pri'}" id="pdfSave" style="margin-top:8px">⬇ 下載到手機</button>
-      <button class="btn big" id="pdfClose" style="margin-top:8px">關閉</button></div></div>`;
-    if (canShare) $('#pdfShare').onclick = async () => { try { await navigator.share({ files: [file], title: file.name }); } catch (e) { if (e.name !== 'AbortError') alert('分享失敗：' + e.message); } };
-    $('#pdfSave').onclick = () => { const a = document.createElement('a'); a.href = URL.createObjectURL(file); a.download = file.name; document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 60000); };
-    $('#pdfClose').onclick = closeModal;
+    fileReady(new File([blob], name + '.pdf', { type: 'application/pdf' }), 'PDF', `共 ${pgs.length} 頁`);
   } catch (e) {
     console.error(e); closeModal(); alert('PDF 產生失敗：' + e.message);
   } finally { host.remove(); }
+}
+
+function busy(text) {
+  const M = $('#modal'); M.classList.add('on');
+  M.innerHTML = `<div class="sheet" style="display:flex;align-items:center;justify-content:center"><div class="card" style="max-width:420px;width:100%;text-align:center"><h3 id="pdfMsg">${esc(text)}</h3><div class="muted">請勿切換畫面</div></div></div>`;
+}
+function fileReady(file, kind, info) {
+  const M = $('#modal'); M.classList.add('on');
+  let canShare = false; try { canShare = !!(navigator.canShare && navigator.canShare({ files: [file] })); } catch (e) { }
+  M.innerHTML = `<div class="sheet" style="display:flex;align-items:center;justify-content:center"><div class="card" style="max-width:420px;width:100%">
+    <h3>✅ ${kind} 已產生</h3><div class="muted" style="word-break:break-all">${esc(file.name)}<br>${info ? info + '，' : ''}${(file.size / 1048576).toFixed(1)} MB</div>
+    ${canShare ? '<button class="btn big pri" id="fShare" style="margin-top:12px">📤 分享（LINE／Email／存到檔案）</button>' : ''}
+    <button class="btn big ${canShare ? '' : 'pri'}" id="fSave" style="margin-top:8px">⬇ 下載到手機</button>
+    <button class="btn big" id="fClose" style="margin-top:8px">關閉</button></div></div>`;
+  if (canShare) $('#fShare').onclick = async () => { try { await navigator.share({ files: [file], title: file.name }); } catch (e) { if (e.name !== 'AbortError') alert('分享失敗：' + e.message); } };
+  $('#fSave').onclick = () => { const a = document.createElement('a'); a.href = URL.createObjectURL(file); a.download = file.name; document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 60000); };
+  $('#fClose').onclick = closeModal;
+}
+
+/* ========== Excel 輸出（離線可用） ========== */
+const XL_TYPE = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+const XF = '微軟正黑體';
+const XB = { top: { style: 'thin' }, left: { style: 'thin' }, bottom: { style: 'thin' }, right: { style: 'thin' } };
+const XCOL = 'ABCDEFGHIJKLMNOP';
+// 估算換行後所需列高（中文字約佔 2 個字元寬）
+function xlLines(text, width) {
+  return String(text || '').split('\n').reduce((n, ln) => n + Math.max(1, Math.ceil([...ln].reduce((w, ch) => w + (ch.charCodeAt(0) > 255 ? 2 : 1), 0) / Math.max(1, width - 1))), 0);
+}
+function xlCell(ws, addr, v, o = {}) {
+  const c = ws.getCell(addr); c.value = v;
+  c.font = { name: XF, size: o.size || 10, bold: !!o.bold, color: o.red ? { argb: 'FFB00000' } : undefined };
+  c.alignment = { vertical: o.v || 'middle', horizontal: o.h || 'left', wrapText: true };
+  if (o.fill) c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFEEEEEE' } };
+  return c;
+}
+function xlBox(ws, r, c1, c2, v, o = {}) {
+  const a = XCOL[c1] + r, b = XCOL[c2] + r;
+  if (c1 !== c2) ws.mergeCells(a + ':' + b);
+  xlCell(ws, a, v, o);
+  if (o.border !== false) for (let k = c1; k <= c2; k++) ws.getCell(XCOL[k] + r).border = XB;
+}
+const imgSize = src => new Promise(res => { const im = new Image(); im.onload = () => res([im.naturalWidth, im.naturalHeight]); im.onerror = () => res([4, 3]); im.src = src; });
+const fitBox = ([w, h], mw, mh) => { const k = Math.min(mw / w, mh / h); return { width: Math.round(w * k), height: Math.round(h * k) }; };
+function xlPage(ws) {
+  ws.pageSetup = { paperSize: 9, orientation: 'portrait', fitToPage: true, fitToWidth: 1, fitToHeight: 0, horizontalCentered: true, margins: { left: 0.4, right: 0.4, top: 0.4, bottom: 0.4, header: 0, footer: 0 } };
+  ws.views = [{ showGridLines: false }];
+}
+async function makeXLSX(i, photos, name) {
+  busy('產生 Excel 中…');
+  try {
+    await loadLib('exceljs.min.js');
+    const st = S.settings, wb = new ExcelJS.Workbook(); wb.creator = st.gc;
+    const ws = wb.addWorksheet(`第${i.seq}次_${rocC(i.date)}`.slice(0, 31));
+    const W = [5, 12, 28, 10, 10, 10, 6, 12, 6, 26];
+    ws.columns = W.map(w => ({ width: w }));
+    xlPage(ws);
+    let r = 1;
+    xlBox(ws, r, 0, 9, st.project, { size: 16, bold: true, h: 'center', border: false }); ws.getRow(r).height = 26; r++;
+    xlBox(ws, r, 0, 9, `機電工程　定期會勘紀錄（第 ${i.seq} 次）`, { size: 13, bold: true, h: 'center', border: false }); ws.getRow(r).height = 22; r += 2;
+    const kv = (label, value, label2, value2) => {
+      xlBox(ws, r, 0, 1, label, { bold: true, fill: true, h: 'center' });
+      if (label2) { xlBox(ws, r, 2, 4, value); xlBox(ws, r, 5, 6, label2, { bold: true, fill: true, h: 'center' }); xlBox(ws, r, 7, 9, value2); }
+      else { xlBox(ws, r, 2, 9, value); ws.getRow(r).height = Math.max(18, xlLines(value, 100) * 14 + 4); }
+      r++;
+    };
+    kv('工程名稱', st.project);
+    kv('會勘日期', `${roc(i.date)}（星期${wk(i.date)}）`, '會勘時間', `${i.timeStart || ''}${i.timeEnd ? ' ～ ' + i.timeEnd : ''}`);
+    kv('會勘地點', i.place || '');
+    kv('營造廠', st.gc, '機電廠商', st.vendor);
+    kv('出席人員', attendeesOf(i));
+    r++;
+    // 一、會勘說明
+    xlBox(ws, r, 0, 9, '一、會勘說明及結論', { size: 12, bold: true, border: false }); r++;
+    const notes = (i.notes || '').split('\n').map(x => x.trim()).filter(Boolean).map(x => x.replace(/^\s*\d+\s*[.、．)]\s*/, ''));
+    (notes.length ? notes : ['（無）']).forEach((n, k) => {
+      const t = notes.length ? `${k + 1}. ${n}` : n;
+      xlBox(ws, r, 0, 9, t, { border: false, v: 'top' }); ws.getRow(r).height = xlLines(t, 120) * 14 + 2; r++;
+    });
+    r++;
+    // 二、事項追蹤
+    xlBox(ws, r, 0, 9, '二、事項追蹤（廠商承諾完成日管制）', { size: 12, bold: true, border: false }); r++;
+    ['項次', '區域', '事項內容', '首次承諾日', '前次承諾日', '本次承諾日', '延期次數', '狀態', '逾期天數', '現場說明'].forEach((h, k) => xlBox(ws, r, k, k, h, { bold: true, fill: true, h: 'center', size: 9 }));
+    ws.getRow(r).height = 28; r++;
+    i.entries.forEach((e, k) => {
+      const c = entryCalc(e, i.date);
+      const title = e.title + (e.cat ? `\n［${e.cat}］` : '');
+      let status = e.status;
+      if (c.overdue) status += `\n逾期${days(e.promise, i.date)}天`;
+      if (e.status === '已完成' && e.doneDate) status += `\n${roc(e.doneDate)}${c.first && !c.delay ? '\n（如期完成）' : ''}`;
+      const vals = [k + 1, e.area || '', title, roc(c.first), roc(e.prevPromise), roc(e.promise), c.postpones || '-', status, c.delay || '-', e.note || ''];
+      const red = [false, false, false, false, false, c.postponedNow, !!c.postpones, c.overdue, !!c.delay, false];
+      vals.forEach((v, n) => xlBox(ws, r, n, n, v, { size: 9, red: red[n], v: 'top', h: [0, 6, 8].includes(n) ? 'center' : 'left' }));
+      ws.getRow(r).height = Math.max(...vals.map((v, n) => xlLines(v, W[n]))) * 12.5 + 4; r++;
+    });
+    if (!i.entries.length) { xlBox(ws, r, 0, 9, '（無）'); r++; }
+    xlBox(ws, r, 0, 9, '註：逾期天數＝以首次承諾完成日起算至本次會勘日（已完成者算至完成日）。紅字為本次再延期或已逾承諾日。', { size: 8, border: false });
+    r += 2;
+    // 三、現場照片（每列兩張）
+    xlBox(ws, r, 0, 9, '三、現場照片', { size: 12, bold: true, border: false }); r++;
+    if (!photos.length) { xlBox(ws, r, 0, 9, '（無）', { border: false }); r++; }
+    const titleOf = id => { const n = i.entries.findIndex(e => e.itemId === id); return n < 0 ? '' : `${n + 1}. ${i.entries[n].title}`; };
+    const halves = [[0, 4, 455], [5, 9, 420]];
+    for (let n = 0; n < photos.length; n += 2) {
+      const pair = photos.slice(n, n + 2);
+      let capMax = 1, imgH = 0;
+      for (let q = 0; q < pair.length; q++) {
+        const ph = pair[q], [c1, c2, px] = halves[q];
+        const durl = await blobToDataURL(ph.annot || ph.orig);
+        const id = wb.addImage({ base64: durl, extension: 'jpeg' });
+        const ext = fitBox([ph.w || 4, ph.h || 3], px - 20, 280); imgH = Math.max(imgH, ext.height);
+        xlBox(ws, r, c1, c2, '');
+        ws.addImage(id, { tl: { col: c1 + 0.1, row: r - 1 + 0.02 }, ext, editAs: 'oneCell' });
+        const cap = `照片${n + q + 1}　${ph.title || ''}` + (ph.desc ? `\n說明：${ph.desc}` : '') + (ph.itemId ? `\n關聯事項：${titleOf(ph.itemId)}` : '') + `\n拍攝時間：${rocDT(ph.takenAt)}`;
+        xlBox(ws, r + 1, c1, c2, cap, { size: 9, v: 'top' });
+        capMax = Math.max(capMax, xlLines(cap, c2 === 4 ? 64 : 58));
+      }
+      // Excel 實際列高會比設定值略矮，多留 15% 避免照片蓋到下方說明
+      ws.getRow(r).height = Math.min(409, Math.round(imgH * 0.75 * 1.15) + 10);
+      ws.getRow(r + 1).height = capMax * 13 + 6;
+      ws.getRow(r + 2).height = 8;
+      r += 3;
+    }
+    r++;
+    // 四、會同人員簽認（每列兩位）
+    xlBox(ws, r, 0, 9, '四、會同人員簽認', { size: 12, bold: true, border: false }); r++;
+    xlBox(ws, r, 0, 9, '以上會勘內容業經各方於現場會同確認。', { size: 9, border: false }); r++;
+    for (let n = 0; n < i.signs.length; n += 2) {
+      const pair = i.signs.slice(n, n + 2);
+      for (let q = 0; q < 2; q++) {
+        const sg = pair[q], [c1, c2, px] = halves[q];
+        xlBox(ws, r, c1, c2, sg ? sg.role : '', { bold: true });
+        xlBox(ws, r + 1, c1, c2, sg && !sg.img && sg.absent ? sg.absent : '', { red: true, h: 'center' });
+        xlBox(ws, r + 2, c1, c2, sg ? `姓名：${sg.name || ''}` : '');
+        xlBox(ws, r + 3, c1, c2, sg && sg.at ? `時間：${rocDT(sg.at)}` : '', { size: 9 });
+        if (sg && sg.img) {
+          const id = wb.addImage({ base64: sg.img, extension: 'png' });
+          const ext = fitBox(await imgSize(sg.img), Math.min(240, px - 20), 72);
+          ws.addImage(id, { tl: { col: c1 + 0.3, row: r + 0.06 }, ext, editAs: 'oneCell' });
+        }
+      }
+      ws.getRow(r).height = 18; ws.getRow(r + 1).height = 60; ws.getRow(r + 2).height = 18; ws.getRow(r + 3).height = 16;
+      r += 4;
+    }
+    const buf = await wb.xlsx.writeBuffer();
+    fileReady(new File([buf], name + '.xlsx', { type: XL_TYPE }), 'Excel', `照片 ${photos.length} 張`);
+  } catch (e) { console.error(e); closeModal(); alert('Excel 產生失敗：' + e.message); }
+}
+async function makeSumXLSX(items, name) {
+  busy('產生 Excel 中…');
+  try {
+    await loadLib('exceljs.min.js');
+    const st = S.settings, wb = new ExcelJS.Workbook(); wb.creator = st.gc;
+    const ws = wb.addWorksheet('延宕追蹤總表');
+    const W = [46, 16, 12, 12, 10];
+    ws.columns = W.map(w => ({ width: w }));
+    xlPage(ws);
+    let r = 1;
+    xlBox(ws, r, 0, 4, st.project, { size: 15, bold: true, h: 'center', border: false }); ws.getRow(r).height = 24; r++;
+    xlBox(ws, r, 0, 4, `機電工程（${st.vendor}）承諾事項延宕追蹤總表`, { size: 12, bold: true, h: 'center', border: false }); r++;
+    const open = items.filter(x => !CLOSED.includes(x.status));
+    xlBox(ws, r, 0, 4, `統計日期：${roc(today())}｜共 ${items.length} 項，未完成 ${open.length} 項，累計延期 ${items.reduce((a, x) => a + (x.postpones || 0), 0)} 次`, { size: 9, h: 'center', border: false }); r += 2;
+    ['事項', '區域', '首次承諾', '最新承諾', '延期次數'].forEach((h, k) => xlBox(ws, r, k, k, h, { bold: true, fill: true, h: 'center' }));
+    ws.views = [{ showGridLines: false, state: 'frozen', ySplit: r }];
+    r++;
+    items.forEach(it => {
+      const vals = [it.title || '', it.area || '', roc(it.firstPromise), roc(it.latestPromise), it.postpones || 0];
+      vals.forEach((v, n) => xlBox(ws, r, n, n, v, { red: n === 4 && it.postpones > 0, bold: n === 4 && it.postpones > 0, h: n >= 2 ? 'center' : 'left' }));
+      ws.getRow(r).height = Math.max(...vals.map((v, n) => xlLines(v, W[n]))) * 14 + 4; r++;
+    });
+    r++;
+    xlBox(ws, r, 0, 4, '註：資料來源為各次定期會勘紀錄（含各方簽認）。', { size: 9, border: false });
+    const buf = await wb.xlsx.writeBuffer();
+    fileReady(new File([buf], name + '.xlsx', { type: XL_TYPE }), 'Excel', `共 ${items.length} 項`);
+  } catch (e) { console.error(e); closeModal(); alert('Excel 產生失敗：' + e.message); }
 }
 
 /* ========== 延宕追蹤總表 ========== */
@@ -1060,7 +1254,7 @@ async function viewItems() {
   const open = items.filter(i => !CLOSED.includes(i.status));
   $('#app').innerHTML = `
     <div class="card"><b>統計至 ${roc(today())}</b><div class="muted">共 ${items.length} 項；未完成 ${open.length} 項；已逾承諾日 ${open.filter(x => itemCalc(x).overdue).length} 項；累計延期 ${items.reduce((s, x) => s + (x.postpones || 0), 0)} 次。<br>事項內容請在各次會勘紀錄中修改。</div>
-    <div class="row" style="margin-top:8px"><button class="btn pri" id="pdfI">📄 產生 PDF</button><button class="btn" id="prI">🖨 列印</button></div></div>
+    <div class="row" style="margin-top:8px"><button class="btn pri" id="pdfI">📄 產生 PDF</button><button class="btn grn" id="xlsI">📊 Excel</button><button class="btn" id="prI">🖨 列印</button></div></div>
     <div class="scrollx">${tableHTML(false)}</div>`;
   const sumBlocks = () => [`<h1>${esc(S.settings.project)}</h1><div class="sub" style="font-size:16px;font-weight:700">機電工程（${esc(S.settings.vendor)}）承諾事項延宕追蹤總表</div>
     <div class="sub">統計日期：${roc(today())}｜共 ${items.length} 項，未完成 ${open.length} 項，累計延期 ${items.reduce((s, x) => s + (x.postpones || 0), 0)} 次</div>`,
@@ -1069,6 +1263,7 @@ async function viewItems() {
   const sumName = `${rocC(today())}_可曜機電延宕追蹤總表`;
   $('#prI').onclick = () => doPrint(pages(sumBlocks()), sumName);
   $('#pdfI').onclick = () => makePDF(sumBlocks(), sumName);
+  $('#xlsI').onclick = () => makeSumXLSX(items, sumName);
 }
 
 /* ========== 設定 / 備份 ========== */
@@ -1104,7 +1299,8 @@ async function viewSettings() {
     <div class="muted">將 115/08/20 手寫會勘紀錄的 8 項事項及承諾日建為「紙本補登」紀錄，作為延宕追蹤的起點。<b>日期為辨識手寫字，匯入後請逐項核對。</b></div>
     <button class="btn" id="seed820" style="margin-top:8px">匯入 115/08/20 手寫事項</button>
   </div>
-  <div class="muted" style="text-align:center">版本 1.6｜離線可用</div>`;
+  <div class="card" style="text-align:center"><div class="muted">目前版本 <b id="appVer">${APP_VER}</b>｜離線可用</div>
+    <button class="btn" id="chkUpd" style="margin-top:8px">🔄 檢查更新</button><div class="muted" id="updMsg" style="margin-top:6px"></div></div>`;
   const save = async () => { await DB.put('kv', st); markSaved('已儲存 ✓'); };
   $$('[data-s]').forEach(el => el.oninput = () => { st[el.dataset.s] = el.value; save(); });
   $$('[data-g]').forEach(el => el.oninput = () => { st.signers[+el.dataset.g][el.dataset.k] = el.value; save(); });
@@ -1119,6 +1315,7 @@ async function viewSettings() {
   $('#bkOut').onclick = exportBackup;
   $('#bkIn').onclick = importBackup;
   $('#seed820').onclick = seed820;
+  $('#chkUpd').onclick = checkUpdate;
 }
 async function exportBackup() {
   toast('打包中…');
@@ -1186,6 +1383,24 @@ async function seed820() {
   toast('已建立，請逐項核對日期'); location.hash = '#/insp/' + insp.id + '/items';
 }
 
+/* ========== 版本更新 ========== */
+const APP_VER = '1.8';
+async function checkUpdate() {
+  const msg = t => { const m = $('#updMsg'); if (m) m.textContent = t; };
+  if (!navigator.onLine) return msg('目前離線，請在有網路的地方再按一次');
+  msg('檢查中…');
+  try {
+    const t = await (await fetch('index.html?nc=' + Date.now(), { cache: 'no-store' })).text();
+    const v = (t.match(/const APP_VER = '([\d.]+)'/) || [])[1];
+    if (!v) return msg('無法讀取線上版本，請稍後再試');
+    if (v === APP_VER) return msg(`已是最新版本（${v}）`);
+    msg(`發現新版本 ${v}，更新中…`);
+    const reg = navigator.serviceWorker && await navigator.serviceWorker.getRegistration();
+    if (reg) await reg.update();
+    setTimeout(() => location.reload(), 1500);
+  } catch (e) { msg('檢查失敗：' + e.message); }
+}
+
 /* ========== 啟動 ========== */
 async function route() {
   const p = location.hash.replace(/^#\/?/, '').split('/');
@@ -1208,7 +1423,16 @@ function netState() { const n = $('#net'); n.textContent = navigator.onLine ? '�
   document.addEventListener('visibilitychange', () => { if (document.hidden && saveTimer) saveNow(); });
   window.addEventListener('pagehide', () => { if (saveTimer) saveNow(); });
   route();
-  if ('serviceWorker' in navigator && location.protocol !== 'file:') navigator.serviceWorker.register('sw.js').catch(() => { });
+  if ('serviceWorker' in navigator && location.protocol !== 'file:') {
+    // 新版 Service Worker 接手時自動重新載入一次（正在填寫時不打斷）
+    const hadCtrl = !!navigator.serviceWorker.controller; let reloaded = false;
+    navigator.serviceWorker.addEventListener('controllerchange', () => {
+      if (!hadCtrl || reloaded) return;
+      if (saveTimer || $('#modal').classList.contains('on')) { toast('已下載新版本，下次開啟時套用'); return; }
+      reloaded = true; location.reload();
+    });
+    navigator.serviceWorker.register('sw.js').then(r => r.update()).catch(() => { });
+  }
 })();
 </script>
 </body>
