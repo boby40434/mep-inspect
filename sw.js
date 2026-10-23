@@ -2,7 +2,7 @@
 // - 主畫面 index.html：有網路時先抓最新版（3 秒內沒回應就用快取），一打開就是新版
 // - 其他檔案：先用快取（地下室沒訊號也能用），背景再更新
 // - 安裝時逐檔快取，單一檔案失敗不會讓整個更新卡住
-const CACHE = 'mep-inspect-v10';
+const CACHE = 'mep-inspect-v11';
 const ASSETS = ['./', './index.html', './manifest.webmanifest', './icon-192.png', './icon-512.png', './jspdf.umd.min.js', './html2canvas.min.js', './exceljs.min.js'];
 
 self.addEventListener('install', e => {

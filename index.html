@@ -28,7 +28,7 @@ main{max-width:860px;margin:0 auto;padding:12px 12px calc(90px + env(safe-area-i
 .row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
 .row>*{flex:1 1 140px;min-width:0}
 label.f{display:block;font-size:13px;color:var(--mut);margin:8px 0 2px}
-input[type=text],input[type=date],input[type=time],input:not([type]),select,textarea{width:100%;border:1px solid var(--line);border-radius:8px;padding:10px;background:#fff;min-height:44px}
+input[type=text],input[type=tel],input[type=date],input[type=time],input:not([type]),select,textarea{width:100%;border:1px solid var(--line);border-radius:8px;padding:10px;background:#fff;min-height:44px}
 textarea{min-height:90px;resize:vertical}
 input[type=date],input[type=time]{-webkit-appearance:none;appearance:none;min-width:0;max-width:100%;display:block;text-align:left}
 input[type=date]::-webkit-date-and-time-value,input[type=time]::-webkit-date-and-time-value{text-align:left}
@@ -194,13 +194,16 @@ const DB = {
   d: null,
   open() {
     return new Promise((res, rej) => {
-      const r = indexedDB.open('mep-inspect', 1);
-      r.onupgradeneeded = () => {
+      const r = indexedDB.open('mep-inspect', 2);
+      r.onupgradeneeded = ev => {
         const d = r.result;
-        d.createObjectStore('kv', { keyPath: 'key' });
-        d.createObjectStore('insp', { keyPath: 'id' });
-        d.createObjectStore('items', { keyPath: 'id' });
-        d.createObjectStore('photos', { keyPath: 'id' }).createIndex('insp', 'inspId');
+        if (ev.oldVersion < 1) {
+          d.createObjectStore('kv', { keyPath: 'key' });
+          d.createObjectStore('insp', { keyPath: 'id' });
+          d.createObjectStore('items', { keyPath: 'id' });
+          d.createObjectStore('photos', { keyPath: 'id' }).createIndex('insp', 'inspId');
+        }
+        if (ev.oldVersion < 2) d.createObjectStore('tombs', { keyPath: 'key' });
       };
       r.onsuccess = () => { this.d = r.result; res(); };
       r.onerror = () => rej(r.error);
@@ -213,11 +216,33 @@ const DB = {
     });
   },
   get(s, k) { return this.run(s, 'readonly', o => o.get(k)); },
-  put(s, v) { return this.run(s, 'readwrite', o => o.put(v)); },
-  del(s, k) { return this.run(s, 'readwrite', o => o.delete(k)); },
+  // 會同步的資料：內容有變才標記「待上傳」並更新時間
+  async put(s, v) {
+    if (SYNCED[s] || (s === 'kv' && v.key === 'settings')) {
+      const old = await this.get(s, s === 'kv' ? v.key : v.id);
+      if (!old || coreJSON(old) !== coreJSON(v) || v._annotDirty) { v._dirty = 1; v.updatedAt = Date.now(); }
+      else { v._dirty = old._dirty; v.updatedAt = old.updatedAt; }
+      if (old && v._seq == null) v._seq = old._seq;
+      await this.putRaw(s, v); if (v._dirty) Sync.soon(); return;
+    }
+    return this.putRaw(s, v);
+  },
+  putRaw(s, v) { return this.run(s, 'readwrite', o => o.put(v)); },
+  async del(s, k) {
+    await this.delRaw(s, k);
+    if (SYNCED[s]) { await this.putRaw('tombs', { key: s + ':' + k, store: s, id: k, t: Date.now() }); Sync.soon(); }
+  },
+  delRaw(s, k) { return this.run(s, 'readwrite', o => o.delete(k)); },
   all(s) { return this.run(s, 'readonly', o => o.getAll()); },
   photosOf(id) { return this.run('photos', 'readonly', o => o.index('insp').getAll(id)); },
 };
+
+const SYNCED = { insp: 1, items: 1, photos: 1 };
+const LOCAL_KEYS = /^(_dirty|_seq|orig|annot|ver|_annotDirty|_lastStatus)$/;
+const coreJSON = v => JSON.stringify(v, (k, x) => LOCAL_KEYS.test(k) || k === 'updatedAt' || k === 'origFileId' || k === 'annotFileId' ? undefined : x);
+const strip = v => JSON.parse(JSON.stringify(v, (k, x) => LOCAL_KEYS.test(k) ? undefined : x));
+const isDirty = v => !!v && (v._dirty || v._seq == null);
+const SHARED_SETTINGS = ['project', 'gc', 'vendor', 'place', 'signers', 'locations'];
 
 const DEFAULT_SETTINGS = {
   key: 'settings',
@@ -278,15 +303,18 @@ function stamp(x, w, h, u, p) {
   lines.forEach((l, i) => x.fillText(l, w - tw - pd, h - bh + pd * .6 + i * fs * 1.3));
 }
 async function renderPhoto(p) {
+  if (!p.orig) await ensureOrig(p);
   const bmp = await loadBitmap(p.orig); const { w, h } = fit(bmp.width, bmp.height, MAXPX);
   const c = document.createElement('canvas'); c.width = w; c.height = h; const x = c.getContext('2d');
   x.drawImage(bmp, 0, 0, w, h); const u = Math.max(w, h) / 400;
   (p.shapes || []).forEach(s => drawShape(x, s, u));
   if (S.settings.stamp) stamp(x, w, h, u, p);
-  p.annot = await new Promise(r => c.toBlob(r, 'image/jpeg', .86)); p.w = w; p.h = h; p.ver = (p.ver || 0) + 1;
+  p.annot = await new Promise(r => c.toBlob(r, 'image/jpeg', .86)); p.w = w; p.h = h; p.ver = (p.ver || 0) + 1; p._annotDirty = 1;
 }
 const urlCache = new Map();
+const PH_WAIT = 'data:image/svg+xml,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="400" height="300"><rect width="400" height="300" fill="#dde3ec"/><text x="200" y="158" font-size="22" text-anchor="middle" fill="#667385" font-family="sans-serif">照片下載中…</text></svg>');
 function photoURL(p) {
+  if (!p.annot && !p.orig) return PH_WAIT;
   const k = p.id + ':' + (p.ver || 0);
   if (!urlCache.has(k)) urlCache.set(k, URL.createObjectURL(p.annot || p.orig));
   return urlCache.get(k);
@@ -349,11 +377,10 @@ function scheduleSave() {
 async function saveNow() {
   clearTimeout(saveTimer); saveTimer = null;
   if (!S.cur) return;
-  S.cur.updatedAt = Date.now();
   await DB.put('insp', S.cur); await syncItems(S.cur);
   markSaved('已儲存 ✓');
 }
-function addLog(a) { S.cur.log.push({ t: Date.now(), a }); }
+function addLog(a) { S.cur.log.push({ t: Date.now(), a, by: (Sync.dev && Sync.dev.name) || '' }); }
 
 /* ========== 版面 ========== */
 function setHeader(title, back) {
@@ -380,7 +407,7 @@ async function viewHome() {
   const nt = nextThu(); const isThu = nt === today();
   const lb = S.settings.lastBackup; const needBk = !lb || Date.now() - lb > 7 * 864e5;
   $('#app').innerHTML = `
-    ${needBk && insps.length ? `<div class="warn">⚠️ 資料只存在這支手機。${lb ? '上次備份：' + fmtDT(lb) : '尚未備份過'}，建議回辦公室有網路時到「設定/備份」匯出備份。</div>` : ''}
+    ${needBk && insps.length && !Sync.enabled() ? `<div class="warn">⚠️ 資料只存在這支手機。${lb ? '上次備份：' + fmtDT(lb) : '尚未備份過'}，建議回辦公室有網路時到「設定/備份」匯出備份。</div>` : ''}
     <div class="card">
       <h3>${isThu ? '📅 今天是週四會勘日' : '📅 下次週四會勘'}：${roc(nt)}（${wk(nt)}）</h3>
       <div class="muted">${esc(S.settings.project)}｜廠商：${esc(S.settings.vendor)}</div>
@@ -467,7 +494,7 @@ function tabBasic(app, lockMsg) {
   ${i.locked ? '' : `<button class="btn big pri" onclick="location.hash='#/insp/${i.id}/items'">下一步：事項追蹤 ›</button>`}
   <div class="card" style="margin-top:12px">
     <h3>操作紀錄（稽核軌跡）</h3>
-    <div class="muted">${i.log.map(l => fmtDT(l.t) + '　' + esc(l.a)).join('<br>')}</div>
+    <div class="muted">${i.log.map(l => fmtDT(l.t) + '　' + esc(l.a) + (l.by ? `（${esc(l.by)}）` : '')).join('<br>')}</div>
     <button class="btn red" id="delInsp" style="margin-top:10px">🗑 刪除此筆會勘紀錄</button>
   </div>`;
   bindFields(app);
@@ -737,6 +764,7 @@ async function photoSheet(p) {
 /* --- 標註器 --- */
 function annotate(p) {
   return new Promise(async resolve => {
+    try { if (!p.orig) { toast('下載原始照片中…'); await ensureOrig(p); } } catch (e) { alert(e.message); return resolve(false); }
     const bmp = await loadBitmap(p.orig); const { w, h } = fit(bmp.width, bmp.height, MAXPX);
     const shapes = JSON.parse(JSON.stringify(p.shapes || []));
     const TOOLS = [['circle', '◯ 圈'], ['rect', '▢ 框'], ['arrow', '➜ 箭頭'], ['line', '╱ 線'], ['free', '✎ 手繪'], ['text', 'A 文字']];
@@ -842,7 +870,7 @@ function tabSign(app, lockMsg) {
     if (miss.length && !confirm(`尚有 ${miss.length} 位未簽名也未註記：\n${miss.map(s => s.role).join('\n')}\n\n仍要定稿？`)) return;
     if (!confirm('定稿後將不可修改。確定定稿？')) return;
     if (saveTimer) await saveNow();
-    const hash = await computeHash(i);
+    let hash; try { hash = await computeHash(i); } catch (e) { return alert('無法定稿：' + e.message); }
     i.locked = { at: Date.now(), hash: hash.all, photos: hash.photos };
     addLog('定稿鎖定 SHA-256 ' + hash.all.slice(0, 16)); await saveNow();
     toast('已定稿鎖定'); location.hash = '#/insp/' + i.id + '/report';
@@ -857,7 +885,11 @@ function tabSign(app, lockMsg) {
 }
 async function computeHash(i) {
   const photos = {};
-  for (const p of S.photos) photos[p.id] = { orig: await sha(await p.orig.arrayBuffer()), annot: await sha(await p.annot.arrayBuffer()) };
+  for (const p of S.photos) {
+    if (!p.orig) await ensureOrig(p);
+    if (!p.annot) await renderPhoto(p);
+    photos[p.id] = { orig: await sha(await p.orig.arrayBuffer()), annot: await sha(await p.annot.arrayBuffer()) };
+  }
   const body = { insp: { ...i, locked: null, log: null }, photos: S.photos.map(p => ({ id: p.id, title: p.title, desc: p.desc, loc: p.loc, itemId: p.itemId, takenAt: p.takenAt, gps: p.gps, h: photos[p.id] })) };
   return { all: await sha(new TextEncoder().encode(JSON.stringify(body))), photos };
 }
@@ -978,8 +1010,8 @@ function tabReport(app, lockMsg) {
     <button class="btn" id="pr" style="width:100%;margin:8px 0 12px">🖨 列印</button>
     <div class="rptwrap">${reportHTML(i, S.photos)}</div>`;
   const fname = `${rocC(i.date)}_赤崁樓機電會勘紀錄_第${i.seq}次${i.locked ? '' : '_草稿'}`;
-  $('#pr').onclick = () => doPrint(reportHTML(i, S.photos), fname);
-  $('#pdf').onclick = () => makePDF(reportBlocks(i, S.photos), fname);
+  $('#pr').onclick = async () => { if (await ensureAnnots(S.photos)) doPrint(reportHTML(i, S.photos), fname); };
+  $('#pdf').onclick = async () => { if (await ensureAnnots(S.photos)) makePDF(reportBlocks(i, S.photos), fname); };
 }
 async function doPrint(html, title) {
   const P = $('#print'); P.innerHTML = html;
@@ -1272,8 +1304,16 @@ async function viewSettings() {
     <label style="display:flex;gap:8px;align-items:center;margin:6px 0"><input type="checkbox" id="stStamp" ${st.stamp ? 'checked' : ''} style="width:22px;height:22px"> 照片壓上日期時間與位置浮水印</label>
     <label style="display:flex;gap:8px;align-items:center;margin:6px 0"><input type="checkbox" id="stGps" ${st.gps ? 'checked' : ''} style="width:22px;height:22px"> 記錄 GPS 座標（不需網路，地下室可能抓不到）</label>
   </div>
+  <div class="card"><h3>☁️ 雲端同步</h3>
+    ${!Sync.url() ? '<div class="muted">尚未設定雲端網址（由管理員設定）。</div>' : Sync.dev.code ? `<div class="muted">使用者：<b>${esc(Sync.dev.name)}</b>｜裝置：${esc(Sync.dev.deviceId)}<br>狀態：<span id="syncSt">${esc(Sync.label())}</span><br>上次同步：${Sync.dev.lastSync ? fmtDT(Sync.dev.lastSync) : '尚未'}</div>
+      <div class="row" style="margin-top:8px"><button class="btn pri" id="syncNow">🔄 立即同步</button><button class="btn" id="syncWho">更換使用者</button></div>` :
+      `<div class="muted">此裝置尚未連線雲端，資料只存在本機。</div><button class="btn pri" id="syncWho" style="margin-top:8px">連線雲端</button>`}
+    <details style="margin-top:10px"><summary class="muted">管理員設定</summary>
+      <label class="f">雲端後台網址（Apps Script 網頁應用程式網址）</label>
+      <input id="syncUrl" value="${esc(S.settings.syncUrl || '')}" placeholder="${esc(SYNC_URL_DEFAULT || 'https://script.google.com/macros/s/…/exec')}"></details>
+  </div>
   <div class="card"><h3>備份（重要）</h3>
-    <div class="muted">所有資料只存在這支手機的瀏覽器內，換手機、清除瀏覽資料或刪除 App 都會遺失。請定期匯出備份檔，存到電腦或雲端。<br>${est}｜${persisted ? '✅ 已啟用永久儲存' : '⚠️ 尚未取得永久儲存權限'}<br>上次備份：${st.lastBackup ? fmtDT(st.lastBackup) : '從未'}</div>
+    <div class="muted">${Sync.enabled() ? '已啟用雲端同步，資料會自動存到雲端。備份檔可作為額外保險。' : '所有資料只存在這支手機的瀏覽器內，換手機、清除瀏覽資料或刪除 App 都會遺失。請定期匯出備份檔，存到電腦或雲端。'}<br>${est}｜${persisted ? '✅ 已啟用永久儲存' : '⚠️ 尚未取得永久儲存權限'}<br>上次備份：${st.lastBackup ? fmtDT(st.lastBackup) : '從未'}</div>
     <div class="row" style="margin-top:10px"><button class="btn pri" id="bkOut">⬇ 匯出完整備份</button><button class="btn" id="bkIn">⬆ 匯入備份</button></div>
   </div>
   <div class="card"><h3>補登紙本紀錄</h3>
@@ -1297,12 +1337,15 @@ async function viewSettings() {
   $('#bkIn').onclick = importBackup;
   $('#seed820').onclick = seed820;
   $('#chkUpd').onclick = checkUpdate;
+  if ($('#syncNow')) $('#syncNow').onclick = async () => { await Sync.run(true); viewSettings(); };
+  if ($('#syncWho')) $('#syncWho').onclick = () => askIdentity(true);
+  $('#syncUrl').onchange = async e => { S.settings.syncUrl = e.target.value.trim(); await DB.put('kv', S.settings); toast('已儲存雲端網址'); viewSettings(); };
 }
 async function exportBackup() {
   toast('打包中…');
   const [insp, items, photos] = await Promise.all([DB.all('insp'), DB.all('items'), DB.all('photos')]);
   const ph = [];
-  for (const p of photos) ph.push({ ...p, orig: await blobToDataURL(p.orig), annot: p.annot ? await blobToDataURL(p.annot) : null });
+  for (const p of photos) ph.push({ ...p, orig: p.orig ? await blobToDataURL(p.orig) : null, annot: p.annot ? await blobToDataURL(p.annot) : null });
   const data = { app: 'mep-inspect', version: 1, exportedAt: Date.now(), settings: S.settings, insp, items, photos: ph };
   const name = `機電會勘備份_${rocC(today())}_${hm(Date.now()).replace(':', '')}.json`;
   const file = new File([JSON.stringify(data)], name, { type: 'application/json' });
@@ -1324,7 +1367,7 @@ function importBackup() {
     toast('匯入中…');
     for (const x of d.insp) await DB.put('insp', x);
     for (const x of d.items) await DB.put('items', x);
-    for (const p of d.photos) { p.orig = await dataURLToBlob(p.orig); p.annot = p.annot ? await dataURLToBlob(p.annot) : null; await DB.put('photos', p); }
+    for (const p of d.photos) { p.orig = p.orig ? await dataURLToBlob(p.orig) : null; p.annot = p.annot ? await dataURLToBlob(p.annot) : null; if (p.annot) p._annotDirty = 1; await DB.put('photos', p); }
     if (d.settings && confirm('是否一併套用備份中的設定（工程名稱、簽名欄位）？')) { S.settings = { ...d.settings, key: 'settings' }; await DB.put('kv', S.settings); }
     toast('匯入完成'); location.hash = '#/';
   };
@@ -1364,8 +1407,199 @@ async function seed820() {
   toast('已建立，請逐項核對日期'); location.hash = '#/insp/' + insp.id + '/items';
 }
 
+/* ========== 雲端同步 ========== */
+const SYNC_URL_DEFAULT = '';
+const b64Of = b => new Promise(r => { const f = new FileReader(); f.onload = () => r(String(f.result).split(',')[1]); f.readAsDataURL(b); });
+const b64Blob = (b64, type) => { const bin = atob(b64), u = new Uint8Array(bin.length); for (let k = 0; k < bin.length; k++) u[k] = bin.charCodeAt(k); return new Blob([u], { type: type || 'image/jpeg' }); };
+async function saveDev() { await DB.putRaw('kv', Sync.dev); }
+const Sync = {
+  dev: { key: 'device' }, busy: false, again: false, timer: null, err: '', pending: 0, changed: false,
+  url() { return (S.settings && S.settings.syncUrl) || SYNC_URL_DEFAULT; },
+  enabled() { return !!(this.url() && this.dev.code); },
+  label() {
+    if (!this.enabled()) return '只存本機';
+    if (!navigator.onLine) return this.pending ? `離線（待上傳 ${this.pending}）` : '離線';
+    if (this.busy) return '同步中…';
+    if (this.err) return '同步失敗：' + this.err;
+    return this.pending ? `待上傳 ${this.pending}` : '已同步 ✓';
+  },
+  show() {
+    const n = $('#net'); n.textContent = this.enabled() ? this.label().replace(/：.*/, '') : (navigator.onLine ? '在線' : '離線');
+    n.classList.toggle('off', !navigator.onLine || !!this.err);
+    const st = $('#syncSt'); if (st) st.textContent = this.label();
+  },
+  soon(ms = 2500) { if (!this.enabled()) return; clearTimeout(this.timer); this.timer = setTimeout(() => this.run(), ms); },
+  async call(body, ms = 90000) {
+    const ac = new AbortController(), t = setTimeout(() => ac.abort(), ms);
+    try {
+      const r = await fetch(this.url(), { method: 'POST', body: JSON.stringify({ ...body, code: this.dev.code, user: this.dev.name, device: this.dev.deviceId }), signal: ac.signal });
+      let j; try { j = await r.json(); } catch (e) { throw new Error('雲端沒有回應'); }
+      if (j.error === 'auth') { this.dev.code = ''; await saveDev(); throw new Error('團隊通行碼已失效，請重新輸入'); }
+      if (j.error) throw new Error(j.error);
+      return j;
+    } catch (e) { throw e.name === 'AbortError' ? new Error('連線逾時') : e; } finally { clearTimeout(t); }
+  },
+  async count() {
+    let n = (await DB.all('tombs')).length;
+    for (const s of ['insp', 'items', 'photos']) n += (await DB.all(s)).filter(isDirty).length;
+    const st = await DB.get('kv', 'settings'); if (isDirty(st)) n++;
+    this.pending = n;
+  },
+  async run(manual) {
+    if (!this.enabled()) return;
+    if (this.busy) { this.again = true; return; }
+    if (!navigator.onLine) { await this.count(); this.show(); if (manual) toast('目前離線，連上網路後會自動同步'); return; }
+    this.busy = true; this.changed = false; this.overrode = 0; this.show();
+    try {
+      await this.pull(); await this.push(); await this.pull();
+      this.err = ''; this.dev.lastSync = Date.now(); await saveDev();
+      this.fetchBlobs();
+    } catch (e) { this.err = e.message; if (manual || /通行碼/.test(e.message)) toast('同步失敗：' + e.message, 4000); if (/通行碼/.test(e.message)) askIdentity(true); }
+    finally {
+      this.busy = false; await this.count(); this.show();
+      if (this.changed) refreshAfterSync();
+      if (this.overrode) toast(`有 ${this.overrode} 筆紀錄已被其他人更新，已改用最新版本`, 4000);
+      if (this.again) { this.again = false; this.soon(1000); }
+    }
+  },
+  async pull() {
+    for (let more = true; more;) {
+      const j = await this.call({ action: 'pull', since: this.dev.lastSeq || 0 });
+      for (const r of j.records) await this.apply(r, false);
+      this.dev.lastSeq = j.seq; await saveDev(); more = j.more;
+    }
+  },
+  async apply(r, force) {
+    if (r.kind === 'settings') {
+      if (r.deleted || !r.data) return;
+      const local = await DB.get('kv', 'settings');
+      if (!force && local && isDirty(local) && (local.updatedAt || 0) > (r.updatedAt || 0)) return;
+      SHARED_SETTINGS.forEach(k => { if (r.data[k] !== undefined) S.settings[k] = r.data[k]; });
+      Object.assign(S.settings, { _seq: r.seq, _dirty: 0, updatedAt: r.updatedAt });
+      await DB.putRaw('kv', S.settings); this.changed = true; return;
+    }
+    const store = r.kind === 'photo' ? 'photos' : r.kind;
+    if (!SYNCED[store]) return;
+    if (!force && await DB.get('tombs', store + ':' + r.id)) return;
+    const local = await DB.get(store, r.id);
+    if (!force && local) {
+      if (!isDirty(local) && (local._seq || 0) >= r.seq) return;
+      if (isDirty(local) && (local.updatedAt || 0) > (r.updatedAt || 0)) return;   // 本機較新，稍後上傳
+    }
+    if (!force && local && isDirty(local)) this.overrode = (this.overrode || 0) + 1;   // 本機未上傳的修改比雲端舊
+    if (r.deleted) { if (local) { await DB.delRaw(store, r.id); this.changed = true; } return; }
+    const rec = { ...r.data, _seq: r.seq, _dirty: 0, updatedAt: r.updatedAt };
+    if (store === 'photos') {
+      rec.orig = local && local.orig && local.origFileId === rec.origFileId ? local.orig : null;
+      rec.annot = local && local.annot && local.annotFileId === rec.annotFileId ? local.annot : null;
+      rec.ver = ((local && local.ver) || 0) + (local && rec.annot === local.annot ? 0 : 1);
+    }
+    await DB.putRaw(store, rec); this.changed = true;
+    if (force && store === 'insp' && S.cur && S.cur.id === r.id) S.cur = null;
+  },
+  async push() {
+    const st = await DB.get('kv', 'settings');
+    if (isDirty(st)) { const d = {}; SHARED_SETTINGS.forEach(k => d[k] = st[k]); d.updatedAt = st.updatedAt || Date.now(); await this.put('settings', 'settings', d, st, 'kv'); }
+    for (const it of (await DB.all('items')).filter(isDirty)) await this.put('items', it.id, strip(it), it, 'items');
+    for (const ph of (await DB.all('photos')).filter(isDirty)) await this.put('photo', ph.id, strip(ph), ph, 'photos');
+    for (const i of (await DB.all('insp')).filter(isDirty)) await this.put('insp', i.id, strip(i), i, 'insp');
+    for (const t of await DB.all('tombs')) {
+      await this.call({ action: 'del', kind: t.store === 'photos' ? 'photo' : t.store, id: t.id });
+      await DB.delRaw('tombs', t.key);
+    }
+  },
+  async put(kind, id, data, local, store) {
+    const body = { action: 'put', kind, id, baseSeq: local._seq || 0, data };
+    if (kind === 'photo') {
+      if (local.orig && !local.origFileId) { body.origB64 = await b64Of(local.orig); body.origType = local.orig.type || 'image/jpeg'; }
+      if (local.annot && (local._annotDirty || !local.annotFileId)) body.annotB64 = await b64Of(local.annot);
+    }
+    const j = await this.call(body);
+    if (j.ok) {
+      const cur = await DB.get(store, id); if (!cur) return;
+      const same = (cur.updatedAt || 0) === (local.updatedAt || 0);
+      cur._seq = j.seq; if (same) cur._dirty = 0;
+      if (kind === 'photo') { cur.origFileId = j.origFileId || cur.origFileId; cur.annotFileId = j.annotFileId || cur.annotFileId; if ((cur.ver || 0) === (local.ver || 0)) cur._annotDirty = 0; }
+      await DB.putRaw(store, cur);
+      if (store === 'insp' && S.cur && S.cur.id === id) { S.cur._seq = j.seq; if (same) S.cur._dirty = 0; }
+      if (store === 'kv') { S.settings._seq = j.seq; if (same) S.settings._dirty = 0; }
+      if (kind === 'photo') { const sp = S.photos.find(x => x.id === id); if (sp) { sp._seq = cur._seq; sp._dirty = cur._dirty; sp.origFileId = cur.origFileId; sp.annotFileId = cur.annotFileId; sp._annotDirty = cur._annotDirty; } }
+    } else if (j.conflict || j.rejected) {
+      await this.apply(j.record, true);
+      toast(j.rejected ? '此紀錄已在雲端定稿，已改用雲端版本' : '已套用其他人較新的更新', 3500);
+    }
+  },
+  async download(fileId) { const j = await this.call({ action: 'blob', fileId }); return b64Blob(j.b64, j.type); },
+  // 背景下載標註照片（報表用）；原始照片需要時才下載
+  async fetchBlobs() {
+    if (this.fetching || !navigator.onLine) return; this.fetching = true;
+    try {
+      for (const p of (await DB.all('photos')).filter(x => !x.annot && x.annotFileId)) {
+        const cur = await DB.get('photos', p.id); if (!cur || cur.annot) continue;
+        cur.annot = await this.download(cur.annotFileId); cur.ver = (cur.ver || 0) + 1;
+        await DB.putRaw('photos', cur);
+        const sp = S.photos.find(x => x.id === cur.id); if (sp) { sp.annot = cur.annot; sp.ver = cur.ver; }
+        $$(`.ph[data-id="${cur.id}"] img`).forEach(im => im.src = photoURL(cur));
+      }
+    } catch (e) { console.warn(e); } finally { this.fetching = false; }
+  },
+};
+async function ensureOrig(p) {
+  if (p.orig) return;
+  if (!p.origFileId) throw new Error('找不到原始照片');
+  if (!navigator.onLine || !Sync.enabled()) throw new Error('原始照片尚未下載到這台裝置，請在有網路時再操作');
+  p.orig = await Sync.download(p.origFileId);
+  const cur = await DB.get('photos', p.id); if (cur) { cur.orig = p.orig; await DB.putRaw('photos', cur); }
+}
+async function ensureAnnots(photos) {
+  const miss = photos.filter(p => !p.annot && !p.orig);
+  if (!miss.length) return true;
+  if (!navigator.onLine || !Sync.enabled()) { alert(`有 ${miss.length} 張照片尚未下載到這台裝置，請在有網路時再產生報表。`); return false; }
+  busy(`下載照片中（${miss.length} 張）…`);
+  try {
+    for (const p of miss) {
+      if (p.annotFileId) p.annot = await Sync.download(p.annotFileId); else await ensureOrig(p);
+      p.ver = (p.ver || 0) + 1;
+      const cur = await DB.get('photos', p.id); if (cur) { cur.annot = p.annot || cur.annot; cur.orig = p.orig || cur.orig; cur.ver = p.ver; await DB.putRaw('photos', cur); }
+    }
+    closeModal(); return true;
+  } catch (e) { closeModal(); alert('照片下載失敗：' + e.message); return false; }
+}
+// 雲端有更新時重新整理畫面（正在輸入或開著視窗時先不打擾）
+function refreshAfterSync() {
+  const a = document.activeElement;
+  if (saveTimer || $('#modal').classList.contains('on') || (a && /^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName))) { Sync.again = true; return; }
+  if (S.cur && !isDirty(S.cur)) S.cur = null;
+  const y = window.scrollY; route().then(() => window.scrollTo(0, y));
+}
+// 第一次使用：輸入姓名與團隊通行碼
+function askIdentity(change) {
+  if (!Sync.url()) return;
+  const M = $('#modal'); M.classList.add('on');
+  M.innerHTML = `<div class="sheet" style="display:flex;align-items:flex-start;justify-content:center;padding-top:calc(env(safe-area-inset-top) + 50px)"><div class="card" style="max-width:400px;width:100%">
+    <h3>☁️ 連線雲端資料</h3><div class="muted">輸入姓名與管理員提供的團隊通行碼。之後這台裝置會記住，資料有網路時自動同步。</div>
+    <label class="f">你的姓名（會記在操作紀錄）</label><input id="idName" value="${esc(Sync.dev.name || '')}" placeholder="例：王小明">
+    <label class="f">團隊通行碼</label><input id="idCode" type="tel" inputmode="numeric" pattern="[0-9]*" autocomplete="off" placeholder="6 位數">
+    <div id="idMsg" style="color:var(--red);min-height:22px;font-size:14px;margin-top:6px"></div>
+    <button class="btn big pri" id="idOk">連線</button>
+    <button class="btn big" id="idSkip" style="margin-top:8px">${change ? '取消' : '暫不連線（只存本機）'}</button></div></div>`;
+  $('#idOk').onclick = async () => {
+    const name = $('#idName').value.trim(), code = $('#idCode').value.trim();
+    if (!name) return $('#idMsg').textContent = '請輸入姓名';
+    if (!code) return $('#idMsg').textContent = '請輸入團隊通行碼';
+    if (!navigator.onLine) return $('#idMsg').textContent = '目前離線，請在有網路時連線';
+    $('#idOk').disabled = true; $('#idMsg').textContent = '連線中…';
+    const old = { ...Sync.dev };
+    Object.assign(Sync.dev, { name, code, skip: false, deviceId: Sync.dev.deviceId || ('D' + uid().slice(-6).toUpperCase()) });
+    try { await Sync.call({ action: 'ping' }); }
+    catch (e) { Object.assign(Sync.dev, { code: old.code || '' }); $('#idOk').disabled = false; return $('#idMsg').textContent = /通行碼/.test(e.message) ? '團隊通行碼錯誤' : '連線失敗：' + e.message; }
+    await saveDev(); closeModal(); toast('已連線雲端，開始同步'); Sync.run(true); route();
+  };
+  $('#idSkip').onclick = async () => { if (!change) { Sync.dev.skip = true; await saveDev(); } closeModal(); };
+}
+
 /* ========== 版本更新 ========== */
-const APP_VER = '1.9';
+const APP_VER = '2.0';
 async function checkUpdate() {
   const msg = t => { const m = $('#updMsg'); if (m) m.textContent = t; };
   if (!navigator.onLine) return msg('目前離線，請在有網路的地方再按一次');
@@ -1393,17 +1627,22 @@ async function route() {
     return await viewHome();
   } catch (e) { console.error(e); $('#app').innerHTML = `<div class="warn">發生錯誤：${esc(e.message)}</div>`; }
 }
-function netState() { const n = $('#net'); n.textContent = navigator.onLine ? '在線' : '離線'; n.classList.toggle('off', !navigator.onLine); }
+function netState() { Sync.show(); if (navigator.onLine) Sync.soon(500); }
 (async () => {
   await DB.open();
   S.settings = Object.assign({}, DEFAULT_SETTINGS, await DB.get('kv', 'settings'));
   await DB.put('kv', S.settings);
+  Sync.dev = (await DB.get('kv', 'device')) || { key: 'device' };
   try { if (navigator.storage && navigator.storage.persist) await navigator.storage.persist(); } catch (e) { }
   window.addEventListener('hashchange', route);
   window.addEventListener('online', netState); window.addEventListener('offline', netState); netState();
   document.addEventListener('visibilitychange', () => { if (document.hidden && saveTimer) saveNow(); });
   window.addEventListener('pagehide', () => { if (saveTimer) saveNow(); });
-  route();
+  await route();
+  if (Sync.url() && !Sync.dev.code && !Sync.dev.skip) askIdentity(false);
+  if (Sync.enabled()) Sync.run();
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) Sync.soon(300); });
+  setInterval(() => { if (!document.hidden) Sync.run(); }, 60000);
   if ('serviceWorker' in navigator && location.protocol !== 'file:') {
     // 新版 Service Worker 接手時自動重新載入一次（正在填寫時不打斷）
     const hadCtrl = !!navigator.serviceWorker.controller; let reloaded = false;
